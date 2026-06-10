@@ -97,10 +97,16 @@ class _EmployeesPageState extends State<EmployeesPage> {
                       })
                       .select()
                       .single();
+                  print('EMPLOYE AJOUTE: $insertedEmployee');
 
                   final employeeId = insertedEmployee['id'];
+
+                  print('EMPLOYEE ID: $employeeId');
+
                   final percent =
                       double.tryParse(percentController.text.trim()) ?? 0;
+
+                  print('POURCENTAGE: $percent');
 
                   await Supabase.instance.client
                       .from('employee_contracts')
@@ -109,6 +115,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
                     'commission_percent': percent,
                     'is_active': true,
                   });
+
+                  print('CONTRAT AJOUTE');
 
                   if (mounted) {
                     Navigator.pop(context);

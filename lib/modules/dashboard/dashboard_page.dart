@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../employees/employees_page.dart';
 import '../attendance/attendance_page.dart';
+import '../caisse/caisse_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -41,6 +42,8 @@ class _DashboardPageState extends State<DashboardPage> {
         return const EmployeesPage();
       case 'attendance':
         return const AttendancePage();
+      case 'caisse':
+        return const CaissePage();
       default:
         return const _DashboardHome();
     }
@@ -193,7 +196,7 @@ class _Sidebar extends StatelessWidget {
             icon: Icons.point_of_sale_outlined,
             label: 'Caisse',
             active: false,
-            onTap: () {},
+            onTap: () => onPageSelected('caisse'),
           ),
           _MenuItem(
             icon: Icons.bar_chart_outlined,
