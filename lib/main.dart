@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/theme/app_theme.dart';
 import 'modules/auth/login_page.dart';
+import 'modules/employees/employees_page.dart';
 
 const supabaseUrl = 'https://tnysncxjbfgmwtlbdgzk.supabase.co';
 const supabaseAnonKey =
