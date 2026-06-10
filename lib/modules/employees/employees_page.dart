@@ -34,8 +34,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
   Future<void> _showAddEmployeeDialog() async {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
-    final roleController = TextEditingController();
+    final roleController = TextEditingController(text: 'employee');
     final specialityController = TextEditingController();
+    final percentController = TextEditingController();
 
     await showDialog(
       context: context,
@@ -57,11 +58,22 @@ class _EmployeesPageState extends State<EmployeesPage> {
                 ),
                 TextField(
                   controller: roleController,
-                  decoration: const InputDecoration(labelText: 'Rôle'),
+                  decoration: const InputDecoration(
+                    labelText: 'Rôle',
+                    helperText:
+                        'Utilise employee, cashier, manager ou super_admin',
+                  ),
                 ),
                 TextField(
                   controller: specialityController,
                   decoration: const InputDecoration(labelText: 'Spécialité'),
+                ),
+                TextField(
+                  controller: percentController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Pourcentage contrat',
+                  ),
                 ),
               ],
             ),
@@ -73,17 +85,49 @@ class _EmployeesPageState extends State<EmployeesPage> {
             ),
             ElevatedButton(
               onPressed: () async {
-                await Supabase.instance.client.from('employees').insert({
-                  'full_name': nameController.text,
-                  'phone': phoneController.text,
-                  'role': roleController.text,
-                  'speciality': specialityController.text,
-                  'is_active': true,
-                });
+                try {
+                  final insertedEmployee = await Supabase.instance.client
+                      .from('employees')
+                      .insert({
+                        'full_name': nameController.text.trim(),
+                        'phone': phoneController.text.trim(),
+                        'role': roleController.text.trim(),
+                        'speciality': specialityController.text.trim(),
+                        'is_active': true,
+                      })
+                      .select()
+                      .single();
 
-                if (mounted) {
-                  Navigator.pop(context);
-                  loadEmployees();
+                  final employeeId = insertedEmployee['id'];
+                  final percent =
+                      double.tryParse(percentController.text.trim()) ?? 0;
+
+                  await Supabase.instance.client
+                      .from('employee_contracts')
+                      .insert({
+                    'employee_id': employeeId,
+                    'commission_percent': percent,
+                    'is_active': true,
+                  });
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    loadEmployees();
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Employé ajouté avec succès'),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Erreur ajout employé : $e'),
+                      ),
+                    );
+                  }
                 }
               },
               child: const Text('Enregistrer'),
@@ -128,9 +172,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                 ),
               ),
               ElevatedButton.icon(
-                onPressed: () {
-                  _showAddEmployeeDialog();
-                },
+                onPressed: _showAddEmployeeDialog,
                 icon: const Icon(Icons.add),
                 label: const Text('Ajouter employé'),
               ),

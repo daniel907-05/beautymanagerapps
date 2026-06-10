@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../employees/employees_page.dart';
+import '../attendance/attendance_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -38,6 +39,8 @@ class _DashboardPageState extends State<DashboardPage> {
     switch (selectedPage) {
       case 'employees':
         return const EmployeesPage();
+      case 'attendance':
+        return const AttendancePage();
       default:
         return const _DashboardHome();
     }
@@ -166,7 +169,7 @@ class _Sidebar extends StatelessWidget {
             icon: Icons.access_time,
             label: 'Présence',
             active: false,
-            onTap: () {},
+            onTap: () => onPageSelected('attendance'),
           ),
           _MenuItem(
             icon: Icons.people_alt_outlined,
