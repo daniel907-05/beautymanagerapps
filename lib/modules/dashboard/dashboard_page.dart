@@ -7,6 +7,8 @@ import '../caisse/caisse_page.dart';
 import '../employees/employees_page.dart';
 import '../products/products_page.dart';
 import '../reports/reports_page.dart';
+import '../services/services_page.dart';
+import '../sales/sales_history_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -50,6 +52,10 @@ class _DashboardPageState extends State<DashboardPage> {
         return const ProductsPage();
       case 'reports':
         return const ReportsPage();
+      case 'services':
+        return const ServicesPage();
+      case 'sales_history':
+        return const SalesHistoryPage();
       default:
         return const _DashboardHome();
     }
@@ -463,8 +469,8 @@ class _Sidebar extends StatelessWidget {
           _MenuItem(
             icon: Icons.spa_outlined,
             label: 'Services',
-            active: false,
-            onTap: () {},
+            active: selectedPage == 'services',
+            onTap: () => onPageSelected('services'),
           ),
           _MenuItem(
             icon: Icons.inventory_2_outlined,
@@ -477,6 +483,12 @@ class _Sidebar extends StatelessWidget {
             label: 'Caisse',
             active: selectedPage == 'caisse',
             onTap: () => onPageSelected('caisse'),
+          ),
+          _MenuItem(
+            icon: Icons.receipt_long_outlined,
+            label: 'Historique',
+            active: selectedPage == 'sales_history',
+            onTap: () => onPageSelected('sales_history'),
           ),
           _MenuItem(
             icon: Icons.bar_chart_outlined,

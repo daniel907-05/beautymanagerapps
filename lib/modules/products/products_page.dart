@@ -116,6 +116,96 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
+  Future<void> _showRestockDialog(Map<String, dynamic> product) async {
+    final quantityController = TextEditingController();
+    final reasonController = TextEditingController(text: 'Réapprovisionnement');
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Réapprovisionner ${product['name']}'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Stock actuel : ${product['stock_quantity'] ?? 0}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                TextField(
+                  controller: quantityController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Quantité reçue',
+                  ),
+                ),
+                TextField(
+                  controller: reasonController,
+                  decoration: const InputDecoration(
+                    labelText: 'Motif',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final quantity =
+                    int.tryParse(quantityController.text.trim()) ?? 0;
+
+                if (quantity <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('La quantité doit être supérieure à 0'),
+                    ),
+                  );
+                  return;
+                }
+
+                final currentStock =
+                    (product['stock_quantity'] as num?)?.toInt() ?? 0;
+                final newStock = currentStock + quantity;
+
+                await Supabase.instance.client
+                    .from('products')
+                    .update({'stock_quantity': newStock}).eq(
+                  'id',
+                  product['id'],
+                );
+
+                await Supabase.instance.client.from('stock_movements').insert({
+                  'product_id': product['id'],
+                  'movement_type': 'in',
+                  'quantity': quantity,
+                  'reason': reasonController.text.trim(),
+                });
+
+                if (mounted) {
+                  Navigator.pop(context);
+                  loadProducts();
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Stock mis à jour avec succès'),
+                    ),
+                  );
+                }
+              },
+              child: const Text('Enregistrer'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   String money(dynamic value) {
     final amount = (value as num?)?.toDouble() ?? 0;
     return '${amount.toStringAsFixed(0)} FCFA';
@@ -200,28 +290,47 @@ class _ProductsPageState extends State<ProductsPage> {
                               subtitle: Text(
                                 'SKU : ${product['sku'] ?? '-'}',
                               ),
-                              trailing: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    money(product['sale_price']),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
+                              trailing: SizedBox(
+                                width: 210,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          money(product['sale_price']),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Stock : ${product['stock_quantity'] ?? 0}',
+                                          style: TextStyle(
+                                            color: (product['stock_quantity'] ??
+                                                        0) <=
+                                                    5
+                                                ? Colors.red
+                                                : Colors.green,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Stock : ${product['stock_quantity'] ?? 0}',
-                                    style: TextStyle(
-                                      color:
-                                          (product['stock_quantity'] ?? 0) <= 5
-                                              ? Colors.red
-                                              : Colors.green,
-                                      fontWeight: FontWeight.w700,
+                                    const SizedBox(width: 12),
+                                    IconButton(
+                                      tooltip: 'Réapprovisionner',
+                                      onPressed: () =>
+                                          _showRestockDialog(product),
+                                      icon: const Icon(Icons.add_box_outlined),
+                                      color: AppTheme.gold,
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             );
                           },
