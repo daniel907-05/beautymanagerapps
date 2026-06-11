@@ -6,6 +6,7 @@ import '../attendance/attendance_page.dart';
 import '../caisse/caisse_page.dart';
 import '../employees/employees_page.dart';
 import '../products/products_page.dart';
+import '../reports/reports_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -47,6 +48,8 @@ class _DashboardPageState extends State<DashboardPage> {
         return const CaissePage();
       case 'products':
         return const ProductsPage();
+      case 'reports':
+        return const ReportsPage();
       default:
         return const _DashboardHome();
     }
@@ -62,11 +65,12 @@ class _DashboardHome extends StatefulWidget {
 
 class _DashboardHomeState extends State<_DashboardHome> {
   bool loading = true;
+  String selectedPeriod = 'today';
 
-  double chiffreJour = 0;
-  int clientsJour = 0;
-  double commissionsJour = 0;
-  double partSalonJour = 0;
+  double chiffreTotal = 0;
+  int clientsTotal = 0;
+  double commissionsTotal = 0;
+  double partSalonTotal = 0;
 
   List recentSales = [];
 
@@ -77,15 +81,34 @@ class _DashboardHomeState extends State<_DashboardHome> {
   }
 
   Future<void> loadDashboardData() async {
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    setState(() {
+      loading = true;
+    });
 
-    final sales = await Supabase.instance.client
+    final now = DateTime.now();
+    DateTime? startDate;
+
+    if (selectedPeriod == 'today') {
+      startDate = DateTime(now.year, now.month, now.day);
+    } else if (selectedPeriod == 'week') {
+      final monday = now.subtract(Duration(days: now.weekday - 1));
+      startDate = DateTime(monday.year, monday.month, monday.day);
+    } else if (selectedPeriod == 'month') {
+      startDate = DateTime(now.year, now.month, 1);
+    } else {
+      startDate = null;
+    }
+
+    var query = Supabase.instance.client
         .from('sales')
         .select()
-        .gte('sale_date', startOfDay)
-        .eq('status', 'validated')
-        .order('sale_date', ascending: false);
+        .eq('status', 'validated');
+
+    if (startDate != null) {
+      query = query.gte('sale_date', startDate.toIso8601String());
+    }
+
+    final sales = await query.order('sale_date', ascending: false);
 
     double total = 0;
     int clients = 0;
@@ -100,10 +123,10 @@ class _DashboardHomeState extends State<_DashboardHome> {
     }
 
     setState(() {
-      chiffreJour = total;
-      clientsJour = clients;
-      commissionsJour = commissions;
-      partSalonJour = salon;
+      chiffreTotal = total;
+      clientsTotal = clients;
+      commissionsTotal = commissions;
+      partSalonTotal = salon;
       recentSales = sales.take(5).toList();
       loading = false;
     });
@@ -111,6 +134,36 @@ class _DashboardHomeState extends State<_DashboardHome> {
 
   String money(double value) {
     return '${value.toStringAsFixed(0)} FCFA';
+  }
+
+  String get periodLabel {
+    switch (selectedPeriod) {
+      case 'today':
+        return 'aujourd’hui';
+      case 'week':
+        return 'cette semaine';
+      case 'month':
+        return 'ce mois';
+      case 'all':
+        return 'total général';
+      default:
+        return '';
+    }
+  }
+
+  String get cardSuffix {
+    switch (selectedPeriod) {
+      case 'today':
+        return 'du jour';
+      case 'week':
+        return 'semaine';
+      case 'month':
+        return 'du mois';
+      case 'all':
+        return 'global';
+      default:
+        return '';
+    }
   }
 
   @override
@@ -139,7 +192,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
                           ),
                           SizedBox(height: 6),
                           Text(
-                            'Vue réelle des performances du salon aujourd’hui',
+                            'Vue réelle des performances du salon',
                             style: TextStyle(
                               fontSize: 16,
                               color: AppTheme.textGrey,
@@ -155,6 +208,34 @@ class _DashboardHomeState extends State<_DashboardHome> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 20),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 'today',
+                      label: Text('Aujourd’hui'),
+                    ),
+                    ButtonSegment(
+                      value: 'week',
+                      label: Text('Cette semaine'),
+                    ),
+                    ButtonSegment(
+                      value: 'month',
+                      label: Text('Ce mois'),
+                    ),
+                    ButtonSegment(
+                      value: 'all',
+                      label: Text('Total général'),
+                    ),
+                  ],
+                  selected: {selectedPeriod},
+                  onSelectionChanged: (value) {
+                    setState(() {
+                      selectedPeriod = value.first;
+                    });
+                    loadDashboardData();
+                  },
+                ),
                 const SizedBox(height: 30),
                 GridView.count(
                   crossAxisCount: 4,
@@ -164,23 +245,23 @@ class _DashboardHomeState extends State<_DashboardHome> {
                   childAspectRatio: 1.4,
                   children: [
                     _StatCard(
-                      title: 'Chiffre du jour',
-                      value: money(chiffreJour),
+                      title: 'Chiffre $cardSuffix',
+                      value: money(chiffreTotal),
                       icon: Icons.payments_outlined,
                     ),
                     _StatCard(
-                      title: 'Clients du jour',
-                      value: clientsJour.toString(),
+                      title: 'Clients $cardSuffix',
+                      value: clientsTotal.toString(),
                       icon: Icons.people_outline,
                     ),
                     _StatCard(
                       title: 'Commissions',
-                      value: money(commissionsJour),
+                      value: money(commissionsTotal),
                       icon: Icons.badge_outlined,
                     ),
                     _StatCard(
                       title: 'Part salon',
-                      value: money(partSalonJour),
+                      value: money(partSalonTotal),
                       icon: Icons.account_balance_wallet_outlined,
                     ),
                   ],
@@ -197,9 +278,9 @@ class _DashboardHomeState extends State<_DashboardHome> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Ventes récentes',
-                          style: TextStyle(
+                        Text(
+                          'Ventes récentes - $periodLabel',
+                          style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w800,
                           ),
@@ -207,9 +288,10 @@ class _DashboardHomeState extends State<_DashboardHome> {
                         const SizedBox(height: 16),
                         Expanded(
                           child: recentSales.isEmpty
-                              ? const Center(
+                              ? Center(
                                   child: Text(
-                                      'Aucune vente enregistrée aujourd’hui'),
+                                    'Aucune vente enregistrée pour $periodLabel',
+                                  ),
                                 )
                               : ListView.separated(
                                   itemCount: recentSales.length,
@@ -237,7 +319,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
                                         ),
                                       ),
                                       subtitle: Text(
-                                        'Commission : ${money((sale['employee_amount'] as num?)?.toDouble() ?? 0)}',
+                                        'Commission : ${money((sale['employee_amount'] as num?)?.toDouble() ?? 0)} • Salon : ${money((sale['salon_amount'] as num?)?.toDouble() ?? 0)}',
                                       ),
                                       trailing: Text(
                                         sale['payment_method'] ?? 'cash',
@@ -330,8 +412,8 @@ class _Sidebar extends StatelessWidget {
           _MenuItem(
             icon: Icons.bar_chart_outlined,
             label: 'Rapports',
-            active: false,
-            onTap: () {},
+            active: selectedPage == 'reports',
+            onTap: () => onPageSelected('reports'),
           ),
         ],
       ),

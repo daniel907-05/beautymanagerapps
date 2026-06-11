@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_theme.dart';
+import 'employee_detail_page.dart';
 
 class EmployeesPage extends StatefulWidget {
   const EmployeesPage({super.key});
@@ -208,6 +209,15 @@ class _EmployeesPageState extends State<EmployeesPage> {
                             final employee = employees[index];
 
                             return ListTile(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        EmployeeDetailPage(employee: employee),
+                                  ),
+                                );
+                              },
                               leading: CircleAvatar(
                                 backgroundColor:
                                     AppTheme.gold.withOpacity(0.18),
