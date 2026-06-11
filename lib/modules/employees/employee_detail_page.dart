@@ -24,6 +24,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   double commissionPercent = 0;
 
   Map<String, dynamic>? attendance;
+  List employeeSales = [];
 
   @override
   void initState() {
@@ -49,7 +50,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         .select()
         .eq('employee_id', employeeId)
         .eq('status', 'validated')
-        .gte('sale_date', startOfDay);
+        .gte('sale_date', startOfDay)
+        .order('sale_date', ascending: false);
 
     final contract = await Supabase.instance.client
         .from('employee_contracts')
@@ -78,6 +80,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
     }
 
     setState(() {
+      employeeSales = sales;
       totalSales = salesTotal;
       totalCommission = commissionTotal;
       totalSalon = salonTotal;
@@ -90,13 +93,29 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
     });
   }
 
-  String money(double value) {
-    return '${value.toStringAsFixed(0)} FCFA';
-  }
+  String money(double value) => '${value.toStringAsFixed(0)} FCFA';
 
   bool present(String key) {
     if (attendance == null) return false;
     return attendance![key] == true;
+  }
+
+  String saleDate(Map sale) {
+    final raw = sale['sale_date'];
+    if (raw == null) return '-';
+
+    final date = DateTime.tryParse(raw.toString());
+    if (date == null) return raw.toString();
+
+    return '${date.hour.toString().padLeft(2, '0')}:'
+        '${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  String paymentLabel(dynamic value) {
+    if (value == 'cash') return 'Espèces';
+    if (value == 'mobile_money') return 'Mobile Money';
+    if (value == 'card') return 'Carte';
+    return value?.toString() ?? '-';
   }
 
   @override
@@ -142,7 +161,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '${employee['role'] ?? ''} • ${employee['speciality'] ?? ''}',
+                    '${employee['role'] ?? ''} • ${employee['speciality'] ?? ''} • ${employee['phone'] ?? ''}',
                     style: const TextStyle(
                       fontSize: 16,
                       color: AppTheme.textGrey,
@@ -219,17 +238,69 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                   const SizedBox(height: 24),
                   Container(
                     width: double.infinity,
+                    height: 430,
                     padding: const EdgeInsets.all(22),
                     decoration: BoxDecoration(
                       color: AppTheme.white,
                       borderRadius: BorderRadius.circular(24),
                     ),
-                    child: const Text(
-                      'Historique détaillé de l’employé à ajouter plus tard',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textGrey,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Ventes de l’employé aujourd’hui',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Expanded(
+                          child: employeeSales.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'Aucune vente enregistrée aujourd’hui pour cet employé',
+                                  ),
+                                )
+                              : ListView.separated(
+                                  itemCount: employeeSales.length,
+                                  separatorBuilder: (_, __) => const Divider(),
+                                  itemBuilder: (context, index) {
+                                    final sale = employeeSales[index];
+
+                                    return ListTile(
+                                      leading: CircleAvatar(
+                                        backgroundColor:
+                                            AppTheme.gold.withOpacity(0.18),
+                                        child: const Icon(
+                                          Icons.point_of_sale,
+                                          color: AppTheme.gold,
+                                        ),
+                                      ),
+                                      title: Text(
+                                        money(
+                                          (sale['total_amount'] as num?)
+                                                  ?.toDouble() ??
+                                              0,
+                                        ),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      subtitle: Text(
+                                        '${paymentLabel(sale['payment_method'])} • Commission : ${money((sale['employee_amount'] as num?)?.toDouble() ?? 0)} • Salon : ${money((sale['salon_amount'] as num?)?.toDouble() ?? 0)}',
+                                      ),
+                                      trailing: Text(
+                                        saleDate(sale),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

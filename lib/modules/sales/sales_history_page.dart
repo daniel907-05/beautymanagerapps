@@ -27,9 +27,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
   }
 
   Future<void> loadSales() async {
-    setState(() {
-      loading = true;
-    });
+    setState(() => loading = true);
 
     final employeesResponse = await Supabase.instance.client
         .from('employees')
@@ -135,6 +133,13 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
     return employeeNames[employeeId] ?? 'Employé inconnu';
   }
 
+  String paymentLabel(dynamic value) {
+    if (value == 'cash') return 'Espèces';
+    if (value == 'mobile_money') return 'Mobile Money';
+    if (value == 'card') return 'Carte';
+    return value?.toString() ?? '-';
+  }
+
   String saleDate(Map sale) {
     final rawDate = sale['sale_date'];
 
@@ -191,217 +196,257 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
     return total;
   }
 
+  double get totalCash {
+    double total = 0;
+    for (final sale in sales) {
+      if (sale['payment_method'] == 'cash') {
+        total += (sale['total_amount'] as num?)?.toDouble() ?? 0;
+      }
+    }
+    return total;
+  }
+
+  double get totalMobileMoney {
+    double total = 0;
+    for (final sale in sales) {
+      if (sale['payment_method'] == 'mobile_money') {
+        total += (sale['total_amount'] as num?)?.toDouble() ?? 0;
+      }
+    }
+    return total;
+  }
+
+  double get totalCard {
+    double total = 0;
+    for (final sale in sales) {
+      if (sale['payment_method'] == 'card') {
+        total += (sale['total_amount'] as num?)?.toDouble() ?? 0;
+      }
+    }
+    return total;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final cardColumns = screenWidth > 1500 ? 4 : 2;
+
     return Container(
       color: AppTheme.background,
       padding: const EdgeInsets.all(30),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Historique des ventes',
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w900,
-                        color: AppTheme.black,
+      child: loading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Historique des ventes',
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.w900,
+                                color: AppTheme.black,
+                              ),
+                            ),
+                            SizedBox(height: 6),
+                            Text(
+                              'Recherchez les ventes par date, période ou employé',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: AppTheme.textGrey,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Recherchez les ventes par date, période ou employé',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: AppTheme.textGrey,
+                      ElevatedButton.icon(
+                        onPressed: loadSales,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Actualiser'),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: loadSales,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Actualiser'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'today',
-                    label: Text('Aujourd’hui'),
+                    ],
                   ),
-                  ButtonSegment(
-                    value: 'week',
-                    label: Text('Semaine'),
-                  ),
-                  ButtonSegment(
-                    value: 'month',
-                    label: Text('Mois'),
-                  ),
-                  ButtonSegment(
-                    value: 'all',
-                    label: Text('Total'),
-                  ),
-                ],
-                selected: {selectedPeriod == 'date' ? 'all' : selectedPeriod},
-                onSelectionChanged: (value) {
-                  setState(() {
-                    selectedPeriod = value.first;
-                    selectedDate = null;
-                  });
-                  loadSales();
-                },
-              ),
-              SizedBox(
-                width: 260,
-                child: DropdownButtonFormField<String>(
-                  value: selectedEmployeeId,
-                  decoration: const InputDecoration(
-                    labelText: 'Employé',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: [
-                    const DropdownMenuItem<String>(
-                      value: null,
-                      child: Text('Tous les employés'),
-                    ),
-                    ...employees.map<DropdownMenuItem<String>>((employee) {
-                      return DropdownMenuItem<String>(
-                        value: employee['id'],
-                        child: Text(employee['full_name'] ?? ''),
-                      );
-                    }),
-                  ],
-                  onChanged: (value) {
-                    setState(() {
-                      selectedEmployeeId = value;
-                    });
-                    loadSales();
-                  },
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: pickDate,
-                icon: const Icon(Icons.calendar_month),
-                label: Text(selectedDateLabel()),
-              ),
-              TextButton.icon(
-                onPressed: resetFilters,
-                icon: const Icon(Icons.clear),
-                label: const Text('Réinitialiser'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          GridView.count(
-            crossAxisCount: 4,
-            shrinkWrap: true,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 1.6,
-            children: [
-              _SummaryCard(
-                title: 'Chiffre',
-                value: money(totalAmount),
-                icon: Icons.payments_outlined,
-              ),
-              _SummaryCard(
-                title: 'Clients',
-                value: totalClients.toString(),
-                icon: Icons.people_outline,
-              ),
-              _SummaryCard(
-                title: 'Commissions',
-                value: money(totalCommissions),
-                icon: Icons.badge_outlined,
-              ),
-              _SummaryCard(
-                title: 'Part salon',
-                value: money(totalSalon),
-                icon: Icons.account_balance_wallet_outlined,
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(
-                color: AppTheme.white,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : sales.isEmpty
-                      ? const Center(
-                          child: Text('Aucune vente trouvée'),
-                        )
-                      : ListView.separated(
-                          itemCount: sales.length,
-                          separatorBuilder: (_, __) => const Divider(),
-                          itemBuilder: (context, index) {
-                            final sale = sales[index];
-
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor:
-                                    AppTheme.gold.withOpacity(0.18),
-                                child: const Icon(
-                                  Icons.receipt_long,
-                                  color: AppTheme.gold,
-                                ),
-                              ),
-                              title: Text(
-                                money(sale['total_amount']),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              subtitle: Text(
-                                '${employeeName(sale)} • '
-                                'Commission : ${money(sale['employee_amount'])} • '
-                                'Salon : ${money(sale['salon_amount'])}',
-                              ),
-                              trailing: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    saleDate(sale),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    sale['payment_method'] ?? 'cash',
-                                    style: const TextStyle(
-                                      color: AppTheme.textGrey,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
+                  const SizedBox(height: 24),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(
+                            value: 'today',
+                            label: Text('Aujourd’hui'),
+                          ),
+                          ButtonSegment(
+                            value: 'week',
+                            label: Text('Semaine'),
+                          ),
+                          ButtonSegment(
+                            value: 'month',
+                            label: Text('Mois'),
+                          ),
+                          ButtonSegment(
+                            value: 'all',
+                            label: Text('Total'),
+                          ),
+                        ],
+                        selected: {
+                          selectedPeriod == 'date' ? 'all' : selectedPeriod
+                        },
+                        onSelectionChanged: (value) {
+                          setState(() {
+                            selectedPeriod = value.first;
+                            selectedDate = null;
+                          });
+                          loadSales();
+                        },
+                      ),
+                      SizedBox(
+                        width: 260,
+                        child: DropdownButtonFormField<String>(
+                          value: selectedEmployeeId,
+                          decoration: const InputDecoration(
+                            labelText: 'Employé',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: [
+                            const DropdownMenuItem<String>(
+                              value: null,
+                              child: Text('Tous les employés'),
+                            ),
+                            ...employees
+                                .map<DropdownMenuItem<String>>((employee) {
+                              return DropdownMenuItem<String>(
+                                value: employee['id'],
+                                child: Text(employee['full_name'] ?? ''),
+                              );
+                            }),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              selectedEmployeeId = value;
+                            });
+                            loadSales();
                           },
                         ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: pickDate,
+                        icon: const Icon(Icons.calendar_month),
+                        label: Text(selectedDateLabel()),
+                      ),
+                      TextButton.icon(
+                        onPressed: resetFilters,
+                        icon: const Icon(Icons.clear),
+                        label: const Text('Réinitialiser'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  GridView.count(
+                    crossAxisCount: cardColumns,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    childAspectRatio: 1.8,
+                    children: [
+                      _SummaryCard(
+                        title: 'Total ventes',
+                        value: money(totalAmount),
+                        icon: Icons.payments_outlined,
+                      ),
+                      _SummaryCard(
+                        title: 'Espèces',
+                        value: money(totalCash),
+                        icon: Icons.payments,
+                      ),
+                      _SummaryCard(
+                        title: 'Mobile Money',
+                        value: money(totalMobileMoney),
+                        icon: Icons.phone_android,
+                      ),
+                      _SummaryCard(
+                        title: 'Carte',
+                        value: money(totalCard),
+                        icon: Icons.credit_card,
+                      ),
+                      _SummaryCard(
+                        title: 'Clients',
+                        value: totalClients.toString(),
+                        icon: Icons.people_outline,
+                      ),
+                      _SummaryCard(
+                        title: 'Commissions',
+                        value: money(totalCommissions),
+                        icon: Icons.badge_outlined,
+                      ),
+                      _SummaryCard(
+                        title: 'Part salon',
+                        value: money(totalSalon),
+                        icon: Icons.account_balance_wallet_outlined,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    height: 520,
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      color: AppTheme.white,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: sales.isEmpty
+                        ? const Center(
+                            child: Text('Aucune vente trouvée'),
+                          )
+                        : ListView.separated(
+                            itemCount: sales.length,
+                            separatorBuilder: (_, __) => const Divider(),
+                            itemBuilder: (context, index) {
+                              final sale = sales[index];
+
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor:
+                                      AppTheme.gold.withOpacity(0.18),
+                                  child: const Icon(
+                                    Icons.receipt_long,
+                                    color: AppTheme.gold,
+                                  ),
+                                ),
+                                title: Text(
+                                  money(sale['total_amount']),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  '${employeeName(sale)} • ${paymentLabel(sale['payment_method'])} • '
+                                  'Commission : ${money(sale['employee_amount'])} • '
+                                  'Salon : ${money(sale['salon_amount'])}',
+                                ),
+                                trailing: Text(
+                                  saleDate(sale),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -432,6 +477,8 @@ class _SummaryCard extends StatelessWidget {
           const Spacer(),
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w900,
@@ -441,6 +488,8 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: AppTheme.textGrey),
           ),
         ],
