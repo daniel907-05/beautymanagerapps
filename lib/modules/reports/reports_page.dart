@@ -9,6 +9,20 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme/app_theme.dart';
 
+class EmployeeStats {
+  final String name;
+  double sales;
+  double commissions;
+  int clients;
+
+  EmployeeStats({
+    required this.name,
+    this.sales = 0,
+    this.commissions = 0,
+    this.clients = 0,
+  });
+}
+
 class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
 
@@ -262,6 +276,40 @@ class _ReportsPageState extends State<ReportsPage> {
         '${date.minute.toString().padLeft(2, '0')}';
   }
 
+  List<EmployeeStats> getTopEmployees() {
+    final Map<String, EmployeeStats> stats = {};
+
+    for (final sale in sales) {
+      final employeeId = sale['employee_id'];
+
+      if (employeeId == null) continue;
+
+      final name = employeeNames[employeeId] ?? 'Employé inconnu';
+
+      stats.putIfAbsent(
+        employeeId,
+        () => EmployeeStats(name: name),
+      );
+
+      stats[employeeId]!.sales +=
+          (sale['total_amount'] as num?)?.toDouble() ?? 0;
+
+      stats[employeeId]!.commissions +=
+          (sale['employee_amount'] as num?)?.toDouble() ?? 0;
+
+      stats[employeeId]!.clients +=
+          (sale['total_clients'] as num?)?.toInt() ?? 0;
+    }
+
+    final result = stats.values.toList();
+
+    result.sort(
+      (a, b) => b.sales.compareTo(a.sales),
+    );
+
+    return result.take(5).toList();
+  }
+
   Future<Uint8List> buildPdf() async {
     final pdf = pw.Document();
 
@@ -298,6 +346,23 @@ class _ReportsPageState extends State<ReportsPage> {
                 ['Commissions', money(totalCommissions)],
                 ['Part salon brute', money(totalSalon)],
               ],
+            ),
+            pw.SizedBox(height: 20),
+            pw.Text(
+              'Top employés',
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 8),
+            pw.TableHelper.fromTextArray(
+              headers: ['Employé', 'CA', 'Clients', 'Commissions'],
+              data: getTopEmployees().map((employee) {
+                return [
+                  employee.name,
+                  money(employee.sales),
+                  employee.clients.toString(),
+                  money(employee.commissions),
+                ];
+              }).toList(),
             ),
             pw.SizedBox(height: 20),
             pw.Text(
@@ -419,6 +484,23 @@ class _ReportsPageState extends State<ReportsPage> {
       excel_package.TextCellValue('Part salon brute'),
       excel_package.DoubleCellValue(totalSalon),
     ]);
+
+    final topEmployeesSheet = excel['Top employés'];
+    topEmployeesSheet.appendRow([
+      excel_package.TextCellValue('Employé'),
+      excel_package.TextCellValue('CA généré'),
+      excel_package.TextCellValue('Clients'),
+      excel_package.TextCellValue('Commissions'),
+    ]);
+
+    for (final employee in getTopEmployees()) {
+      topEmployeesSheet.appendRow([
+        excel_package.TextCellValue(employee.name),
+        excel_package.DoubleCellValue(employee.sales),
+        excel_package.IntCellValue(employee.clients),
+        excel_package.DoubleCellValue(employee.commissions),
+      ]);
+    }
 
     final salesSheet = excel['Ventes'];
 
@@ -692,6 +774,62 @@ class _ReportsPageState extends State<ReportsPage> {
                         icon: Icons.list_alt_outlined,
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 24),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      color: AppTheme.white,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Top employés',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        getTopEmployees().isEmpty
+                            ? const Text(
+                                'Aucune performance employé pour cette période',
+                                style: TextStyle(color: AppTheme.textGrey),
+                              )
+                            : Column(
+                                children: getTopEmployees().map((employee) {
+                                  return ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor:
+                                          AppTheme.gold.withOpacity(0.18),
+                                      child: const Icon(
+                                        Icons.emoji_events,
+                                        color: AppTheme.gold,
+                                      ),
+                                    ),
+                                    title: Text(
+                                      employee.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      'Clients : ${employee.clients} • Commission : ${money(employee.commissions)}',
+                                    ),
+                                    trailing: Text(
+                                      money(employee.sales),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 24),
                   SizedBox(
