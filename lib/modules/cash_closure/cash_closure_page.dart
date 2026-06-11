@@ -155,9 +155,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
     if (actual <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Saisissez le montant compté',
-          ),
+          content: Text('Saisissez le montant compté'),
         ),
       );
       return;
@@ -168,6 +166,29 @@ class _CashClosurePageState extends State<CashClosurePage> {
     });
 
     final today = DateTime.now().toIso8601String().split('T').first;
+
+    final existingSession = await Supabase.instance.client
+        .from('cash_sessions')
+        .select()
+        .eq('session_date', today)
+        .eq('status', 'closed')
+        .maybeSingle();
+
+    if (existingSession != null) {
+      setState(() {
+        saving = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('La caisse est déjà clôturée aujourd’hui'),
+          ),
+        );
+      }
+
+      return;
+    }
 
     await Supabase.instance.client.from('cash_sessions').insert({
       'session_date': today,
@@ -188,9 +209,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Caisse clôturée avec succès',
-          ),
+          content: Text('Caisse clôturée avec succès'),
         ),
       );
     }
