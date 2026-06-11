@@ -9,6 +9,8 @@ import '../products/products_page.dart';
 import '../reports/reports_page.dart';
 import '../services/services_page.dart';
 import '../sales/sales_history_page.dart';
+import '../stock/stock_history_page.dart';
+import '../expenses/expenses_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -56,6 +58,10 @@ class _DashboardPageState extends State<DashboardPage> {
         return const ServicesPage();
       case 'sales_history':
         return const SalesHistoryPage();
+      case 'stock_history':
+        return const StockHistoryPage();
+      case 'expenses':
+        return const ExpensesPage();
       default:
         return const _DashboardHome();
     }
@@ -431,72 +437,86 @@ class _Sidebar extends StatelessWidget {
       width: 260,
       color: AppTheme.dark,
       padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'BeautyManager',
-            style: TextStyle(
-              color: AppTheme.gold,
-              fontSize: 26,
-              fontWeight: FontWeight.w900,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'BeautyManager',
+              style: TextStyle(
+                color: AppTheme.gold,
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-          const SizedBox(height: 5),
-          const Text(
-            'Apps Premium',
-            style: TextStyle(color: Colors.white54),
-          ),
-          const SizedBox(height: 35),
-          _MenuItem(
-            icon: Icons.dashboard_outlined,
-            label: 'Dashboard',
-            active: selectedPage == 'dashboard',
-            onTap: () => onPageSelected('dashboard'),
-          ),
-          _MenuItem(
-            icon: Icons.access_time,
-            label: 'Présence',
-            active: selectedPage == 'attendance',
-            onTap: () => onPageSelected('attendance'),
-          ),
-          _MenuItem(
-            icon: Icons.people_alt_outlined,
-            label: 'Employés',
-            active: selectedPage == 'employees',
-            onTap: () => onPageSelected('employees'),
-          ),
-          _MenuItem(
-            icon: Icons.spa_outlined,
-            label: 'Services',
-            active: selectedPage == 'services',
-            onTap: () => onPageSelected('services'),
-          ),
-          _MenuItem(
-            icon: Icons.inventory_2_outlined,
-            label: 'Produits',
-            active: selectedPage == 'products',
-            onTap: () => onPageSelected('products'),
-          ),
-          _MenuItem(
-            icon: Icons.point_of_sale_outlined,
-            label: 'Caisse',
-            active: selectedPage == 'caisse',
-            onTap: () => onPageSelected('caisse'),
-          ),
-          _MenuItem(
-            icon: Icons.receipt_long_outlined,
-            label: 'Historique',
-            active: selectedPage == 'sales_history',
-            onTap: () => onPageSelected('sales_history'),
-          ),
-          _MenuItem(
-            icon: Icons.bar_chart_outlined,
-            label: 'Rapports',
-            active: selectedPage == 'reports',
-            onTap: () => onPageSelected('reports'),
-          ),
-        ],
+            const SizedBox(height: 5),
+            const Text(
+              'Apps Premium',
+              style: TextStyle(color: Colors.white54),
+            ),
+            const SizedBox(height: 35),
+            _MenuItem(
+              icon: Icons.dashboard_outlined,
+              label: 'Dashboard',
+              active: selectedPage == 'dashboard',
+              onTap: () => onPageSelected('dashboard'),
+            ),
+            _MenuItem(
+              icon: Icons.access_time,
+              label: 'Présence',
+              active: selectedPage == 'attendance',
+              onTap: () => onPageSelected('attendance'),
+            ),
+            _MenuItem(
+              icon: Icons.people_alt_outlined,
+              label: 'Employés',
+              active: selectedPage == 'employees',
+              onTap: () => onPageSelected('employees'),
+            ),
+            _MenuItem(
+              icon: Icons.spa_outlined,
+              label: 'Services',
+              active: selectedPage == 'services',
+              onTap: () => onPageSelected('services'),
+            ),
+            _MenuItem(
+              icon: Icons.inventory_2_outlined,
+              label: 'Produits',
+              active: selectedPage == 'products',
+              onTap: () => onPageSelected('products'),
+            ),
+            _MenuItem(
+              icon: Icons.history_outlined,
+              label: 'Stock',
+              active: selectedPage == 'stock_history',
+              onTap: () => onPageSelected('stock_history'),
+            ),
+            _MenuItem(
+              icon: Icons.point_of_sale_outlined,
+              label: 'Caisse',
+              active: selectedPage == 'caisse',
+              onTap: () => onPageSelected('caisse'),
+            ),
+            _MenuItem(
+              icon: Icons.money_off_csred_outlined,
+              label: 'Dépenses',
+              active: selectedPage == 'expenses',
+              onTap: () => onPageSelected('expenses'),
+            ),
+            _MenuItem(
+              icon: Icons.receipt_long_outlined,
+              label: 'Historique',
+              active: selectedPage == 'sales_history',
+              onTap: () => onPageSelected('sales_history'),
+            ),
+            _MenuItem(
+              icon: Icons.bar_chart_outlined,
+              label: 'Rapports',
+              active: selectedPage == 'reports',
+              onTap: () => onPageSelected('reports'),
+            ),
+          ],
+        ),
       ),
     );
   }
