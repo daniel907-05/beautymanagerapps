@@ -15,6 +15,7 @@ class _CaissePageState extends State<CaissePage> {
   List products = [];
 
   String saleType = 'service';
+  String paymentMethod = 'cash';
 
   String? selectedEmployeeId;
   Map<String, dynamic>? selectedService;
@@ -69,7 +70,7 @@ class _CaissePageState extends State<CaissePage> {
     return price * quantity;
   }
 
-  Future<void> saveSale() async {
+  Future<bool> isCashClosedToday() async {
     final today = DateTime.now().toIso8601String().split('T').first;
 
     final closedSession = await Supabase.instance.client
@@ -79,7 +80,13 @@ class _CaissePageState extends State<CaissePage> {
         .eq('status', 'closed')
         .maybeSingle();
 
-    if (closedSession != null) {
+    return closedSession != null;
+  }
+
+  Future<void> saveSale() async {
+    final closed = await isCashClosedToday();
+
+    if (closed) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -89,6 +96,7 @@ class _CaissePageState extends State<CaissePage> {
       );
       return;
     }
+
     if (saleType == 'service') {
       if (selectedEmployeeId == null || selectedService == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -109,6 +117,17 @@ class _CaissePageState extends State<CaissePage> {
         );
         return;
       }
+
+      final quantity = int.tryParse(quantityController.text.trim()) ?? 0;
+
+      if (quantity <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('La quantité doit être supérieure à 0'),
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => saving = true);
@@ -117,7 +136,7 @@ class _CaissePageState extends State<CaissePage> {
       double commissionPercent = 0;
       double employeeAmount = 0;
       double salonAmount = 0;
-      double totalAmount = getSelectedAmount();
+      final totalAmount = getSelectedAmount();
 
       if (saleType == 'service') {
         final contract = await Supabase.instance.client
@@ -146,7 +165,7 @@ class _CaissePageState extends State<CaissePage> {
             'commission_percent_snapshot': commissionPercent,
             'employee_amount': employeeAmount,
             'salon_amount': salonAmount,
-            'payment_method': 'cash',
+            'payment_method': paymentMethod,
             'status': 'validated',
           })
           .select()
@@ -207,6 +226,7 @@ class _CaissePageState extends State<CaissePage> {
           selectedService = null;
           selectedProduct = null;
           quantityController.text = '1';
+          paymentMethod = 'cash';
         });
 
         loadData();
@@ -228,6 +248,19 @@ class _CaissePageState extends State<CaissePage> {
     return '${value.toStringAsFixed(0)} FCFA';
   }
 
+  String paymentLabel(String value) {
+    switch (value) {
+      case 'cash':
+        return 'Espèces';
+      case 'mobile_money':
+        return 'Mobile Money';
+      case 'card':
+        return 'Carte';
+      default:
+        return value;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -235,140 +268,179 @@ class _CaissePageState extends State<CaissePage> {
       padding: const EdgeInsets.all(30),
       child: loading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Caisse',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w900,
-                    color: AppTheme.black,
+          : SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Caisse',
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      color: AppTheme.black,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Enregistrez une vente service ou produit',
-                  style: TextStyle(fontSize: 16, color: AppTheme.textGrey),
-                ),
-                const SizedBox(height: 28),
-                Container(
-                  width: 560,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: AppTheme.white,
-                    borderRadius: BorderRadius.circular(24),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Enregistrez une vente service ou produit',
+                    style: TextStyle(fontSize: 16, color: AppTheme.textGrey),
                   ),
-                  child: Column(
-                    children: [
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(
-                            value: 'service',
-                            label: Text('Service'),
-                            icon: Icon(Icons.spa),
+                  const SizedBox(height: 28),
+                  Container(
+                    width: 560,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: AppTheme.white,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Column(
+                      children: [
+                        SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(
+                              value: 'service',
+                              label: Text('Service'),
+                              icon: Icon(Icons.spa),
+                            ),
+                            ButtonSegment(
+                              value: 'product',
+                              label: Text('Produit'),
+                              icon: Icon(Icons.inventory_2),
+                            ),
+                          ],
+                          selected: {saleType},
+                          onSelectionChanged: (value) {
+                            setState(() {
+                              saleType = value.first;
+                              selectedService = null;
+                              selectedProduct = null;
+                              quantityController.text = '1';
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 22),
+                        if (saleType == 'service') ...[
+                          DropdownButtonFormField<String>(
+                            value: selectedEmployeeId,
+                            decoration:
+                                const InputDecoration(labelText: 'Employé'),
+                            items: employees.map<DropdownMenuItem<String>>((e) {
+                              return DropdownMenuItem<String>(
+                                value: e['id'],
+                                child: Text(e['full_name']),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setState(() => selectedEmployeeId = value);
+                            },
                           ),
-                          ButtonSegment(
-                            value: 'product',
-                            label: Text('Produit'),
-                            icon: Icon(Icons.inventory_2),
+                          const SizedBox(height: 18),
+                          DropdownButtonFormField<Map<String, dynamic>>(
+                            value: selectedService,
+                            decoration:
+                                const InputDecoration(labelText: 'Service'),
+                            items: services
+                                .map<DropdownMenuItem<Map<String, dynamic>>>(
+                                    (s) {
+                              return DropdownMenuItem<Map<String, dynamic>>(
+                                value: s,
+                                child:
+                                    Text('${s['name']} - ${s['price']} FCFA'),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setState(() => selectedService = value);
+                            },
                           ),
                         ],
-                        selected: {saleType},
-                        onSelectionChanged: (value) {
-                          setState(() {
-                            saleType = value.first;
-                            selectedService = null;
-                            selectedProduct = null;
-                            quantityController.text = '1';
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 22),
-                      if (saleType == 'service') ...[
+                        if (saleType == 'product') ...[
+                          DropdownButtonFormField<Map<String, dynamic>>(
+                            value: selectedProduct,
+                            decoration:
+                                const InputDecoration(labelText: 'Produit'),
+                            items: products
+                                .map<DropdownMenuItem<Map<String, dynamic>>>(
+                                    (p) {
+                              return DropdownMenuItem<Map<String, dynamic>>(
+                                value: p,
+                                child: Text(
+                                  '${p['name']} - ${p['sale_price']} FCFA | Stock: ${p['stock_quantity']}',
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setState(() => selectedProduct = value);
+                            },
+                          ),
+                          const SizedBox(height: 18),
+                          TextField(
+                            controller: quantityController,
+                            keyboardType: TextInputType.number,
+                            decoration:
+                                const InputDecoration(labelText: 'Quantité'),
+                            onChanged: (_) => setState(() {}),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
                         DropdownButtonFormField<String>(
-                          value: selectedEmployeeId,
-                          decoration:
-                              const InputDecoration(labelText: 'Employé'),
-                          items: employees.map<DropdownMenuItem<String>>((e) {
-                            return DropdownMenuItem<String>(
-                              value: e['id'],
-                              child: Text(e['full_name']),
-                            );
-                          }).toList(),
+                          value: paymentMethod,
+                          decoration: const InputDecoration(
+                            labelText: 'Mode de paiement',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'cash',
+                              child: Text('Espèces'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'mobile_money',
+                              child: Text('Mobile Money'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'card',
+                              child: Text('Carte'),
+                            ),
+                          ],
                           onChanged: (value) {
-                            setState(() => selectedEmployeeId = value);
+                            setState(() {
+                              paymentMethod = value ?? 'cash';
+                            });
                           },
                         ),
-                        const SizedBox(height: 18),
-                        DropdownButtonFormField<Map<String, dynamic>>(
-                          value: selectedService,
-                          decoration:
-                              const InputDecoration(labelText: 'Service'),
-                          items: services
-                              .map<DropdownMenuItem<Map<String, dynamic>>>((s) {
-                            return DropdownMenuItem<Map<String, dynamic>>(
-                              value: s,
-                              child: Text('${s['name']} - ${s['price']} FCFA'),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() => selectedService = value);
-                          },
-                        ),
-                      ],
-                      if (saleType == 'product') ...[
-                        DropdownButtonFormField<Map<String, dynamic>>(
-                          value: selectedProduct,
-                          decoration:
-                              const InputDecoration(labelText: 'Produit'),
-                          items: products
-                              .map<DropdownMenuItem<Map<String, dynamic>>>((p) {
-                            return DropdownMenuItem<Map<String, dynamic>>(
-                              value: p,
-                              child: Text(
-                                '${p['name']} - ${p['sale_price']} FCFA | Stock: ${p['stock_quantity']}',
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() => selectedProduct = value);
-                          },
-                        ),
-                        const SizedBox(height: 18),
-                        TextField(
-                          controller: quantityController,
-                          keyboardType: TextInputType.number,
-                          decoration:
-                              const InputDecoration(labelText: 'Quantité'),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ],
-                      const SizedBox(height: 24),
-                      Text(
-                        'Montant à payer : ${money(getSelectedAmount())}',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: AppTheme.black,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton.icon(
-                          onPressed: saving ? null : saveSale,
-                          icon: const Icon(Icons.point_of_sale),
-                          label: Text(
-                            saving ? 'Enregistrement...' : 'Valider la vente',
+                        const SizedBox(height: 24),
+                        Text(
+                          'Montant à payer : ${money(getSelectedAmount())}',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: AppTheme.black,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 6),
+                        Text(
+                          'Paiement : ${paymentLabel(paymentMethod)}',
+                          style: const TextStyle(
+                            color: AppTheme.textGrey,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton.icon(
+                            onPressed: saving ? null : saveSale,
+                            icon: const Icon(Icons.point_of_sale),
+                            label: Text(
+                              saving ? 'Enregistrement...' : 'Valider la vente',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
     );
   }
