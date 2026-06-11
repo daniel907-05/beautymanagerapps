@@ -70,6 +70,25 @@ class _CaissePageState extends State<CaissePage> {
   }
 
   Future<void> saveSale() async {
+    final today = DateTime.now().toIso8601String().split('T').first;
+
+    final closedSession = await Supabase.instance.client
+        .from('cash_sessions')
+        .select()
+        .eq('session_date', today)
+        .eq('status', 'closed')
+        .maybeSingle();
+
+    if (closedSession != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossible d’enregistrer une vente : la caisse est déjà clôturée aujourd’hui',
+          ),
+        ),
+      );
+      return;
+    }
     if (saleType == 'service') {
       if (selectedEmployeeId == null || selectedService == null) {
         ScaffoldMessenger.of(context).showSnackBar(
