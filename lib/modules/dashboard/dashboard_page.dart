@@ -73,6 +73,8 @@ class _DashboardHomeState extends State<_DashboardHome> {
   double partSalonTotal = 0;
 
   List recentSales = [];
+  List lowStockProducts = [];
+  Map<String, String> employeeNames = {};
 
   @override
   void initState() {
@@ -99,16 +101,34 @@ class _DashboardHomeState extends State<_DashboardHome> {
       startDate = null;
     }
 
-    var query = Supabase.instance.client
-        .from('sales')
+    final sales = startDate == null
+        ? await Supabase.instance.client
+            .from('sales')
+            .select()
+            .eq('status', 'validated')
+            .order('sale_date', ascending: false)
+        : await Supabase.instance.client
+            .from('sales')
+            .select()
+            .eq('status', 'validated')
+            .gte('sale_date', startDate.toIso8601String())
+            .order('sale_date', ascending: false);
+
+    final employees = await Supabase.instance.client
+        .from('employees')
+        .select('id, full_name');
+
+    final lowStock = await Supabase.instance.client
+        .from('products')
         .select()
-        .eq('status', 'validated');
+        .eq('is_active', true)
+        .lte('stock_quantity', 5)
+        .order('stock_quantity');
 
-    if (startDate != null) {
-      query = query.gte('sale_date', startDate.toIso8601String());
+    final Map<String, String> names = {};
+    for (final employee in employees) {
+      names[employee['id']] = employee['full_name'] ?? 'Employé inconnu';
     }
-
-    final sales = await query.order('sale_date', ascending: false);
 
     double total = 0;
     int clients = 0;
@@ -128,6 +148,8 @@ class _DashboardHomeState extends State<_DashboardHome> {
       commissionsTotal = commissions;
       partSalonTotal = salon;
       recentSales = sales.take(5).toList();
+      lowStockProducts = lowStock;
+      employeeNames = names;
       loading = false;
     });
   }
@@ -164,6 +186,16 @@ class _DashboardHomeState extends State<_DashboardHome> {
       default:
         return '';
     }
+  }
+
+  String employeeNameForSale(Map sale) {
+    final employeeId = sale['employee_id'];
+
+    if (employeeId == null) {
+      return 'Vente produit';
+    }
+
+    return employeeNames[employeeId] ?? 'Employé inconnu';
   }
 
   @override
@@ -267,6 +299,41 @@ class _DashboardHomeState extends State<_DashboardHome> {
                   ],
                 ),
                 const SizedBox(height: 25),
+                if (lowStockProducts.isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.orange),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '⚠ Produits à réapprovisionner',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ...lowStockProducts.map(
+                          (product) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              '${product['name']}  •  Stock : ${product['stock_quantity']}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 Expanded(
                   child: Container(
                     width: double.infinity,
@@ -298,6 +365,8 @@ class _DashboardHomeState extends State<_DashboardHome> {
                                   separatorBuilder: (_, __) => const Divider(),
                                   itemBuilder: (context, index) {
                                     final sale = recentSales[index];
+                                    final employeeName =
+                                        employeeNameForSale(sale);
 
                                     return ListTile(
                                       leading: CircleAvatar(
@@ -319,7 +388,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
                                         ),
                                       ),
                                       subtitle: Text(
-                                        'Commission : ${money((sale['employee_amount'] as num?)?.toDouble() ?? 0)} • Salon : ${money((sale['salon_amount'] as num?)?.toDouble() ?? 0)}',
+                                        '$employeeName • Commission : ${money((sale['employee_amount'] as num?)?.toDouble() ?? 0)} • Salon : ${money((sale['salon_amount'] as num?)?.toDouble() ?? 0)}',
                                       ),
                                       trailing: Text(
                                         sale['payment_method'] ?? 'cash',

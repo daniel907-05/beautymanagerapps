@@ -32,12 +32,18 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   }
 
   Future<void> loadEmployeeStats() async {
+    setState(() {
+      loading = true;
+    });
+
     final employeeId = widget.employee['id'];
     final now = DateTime.now();
+
     final today = DateTime(now.year, now.month, now.day)
         .toIso8601String()
         .split('T')
         .first;
+
     final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
 
     final sales = await Supabase.instance.client
@@ -102,71 +108,75 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
       padding: const EdgeInsets.all(30),
       child: loading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        employee['full_name'] ?? '',
-                        style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w900,
-                          color: AppTheme.black,
+          : SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.arrow_back),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          employee['full_name'] ?? '',
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                            color: AppTheme.black,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '${employee['role'] ?? ''} • ${employee['speciality'] ?? ''}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: AppTheme.textGrey,
+                      ElevatedButton.icon(
+                        onPressed: loadEmployeeStats,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Actualiser'),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 28),
-                GridView.count(
-                  crossAxisCount: 4,
-                  shrinkWrap: true,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 1.8,
-                  children: [
-                    _InfoCard(
-                      title: 'Clients aujourd’hui',
-                      value: totalClients.toString(),
-                      icon: Icons.people_outline,
+                  const SizedBox(height: 6),
+                  Text(
+                    '${employee['role'] ?? ''} • ${employee['speciality'] ?? ''}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: AppTheme.textGrey,
                     ),
-                    _InfoCard(
-                      title: 'CA généré',
-                      value: money(totalSales),
-                      icon: Icons.payments_outlined,
-                    ),
-                    _InfoCard(
-                      title: 'Commission à payer',
-                      value: money(totalCommission),
-                      icon: Icons.badge_outlined,
-                    ),
-                    _InfoCard(
-                      title: 'Part salon',
-                      value: money(totalSalon),
-                      icon: Icons.account_balance_wallet_outlined,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _SectionCard(
+                  ),
+                  const SizedBox(height: 28),
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    children: [
+                      _InfoCard(
+                        title: 'Clients aujourd’hui',
+                        value: totalClients.toString(),
+                        icon: Icons.people_outline,
+                      ),
+                      _InfoCard(
+                        title: 'CA généré',
+                        value: money(totalSales),
+                        icon: Icons.payments_outlined,
+                      ),
+                      _InfoCard(
+                        title: 'Commission à payer',
+                        value: money(totalCommission),
+                        icon: Icons.badge_outlined,
+                      ),
+                      _InfoCard(
+                        title: 'Part salon',
+                        value: money(totalSalon),
+                        icon: Icons.account_balance_wallet_outlined,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  Wrap(
+                    spacing: 18,
+                    runSpacing: 18,
+                    children: [
+                      _SectionCard(
                         title: 'Contrat',
                         child: Text(
                           'Pourcentage actuel : ${commissionPercent.toStringAsFixed(0)}%',
@@ -176,27 +186,30 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 18),
-                    Expanded(
-                      child: _SectionCard(
+                      _SectionCard(
                         title: 'Présence du jour',
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
                             _PresenceStatus(
-                                label: 'Matin', active: present('morning')),
+                              label: 'Matin',
+                              active: present('morning'),
+                            ),
                             _PresenceStatus(
-                                label: 'Midi', active: present('midday')),
+                              label: 'Midi',
+                              active: present('midday'),
+                            ),
                             _PresenceStatus(
-                                label: 'Soir', active: present('evening')),
+                              label: 'Soir',
+                              active: present('evening'),
+                            ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
     );
   }
@@ -215,28 +228,39 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: AppTheme.white,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: AppTheme.gold, size: 30),
-          const SizedBox(height: 14),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: AppTheme.black,
+    return SizedBox(
+      width: 250,
+      height: 150,
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: AppTheme.white,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: AppTheme.gold, size: 28),
+            const Spacer(),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                color: AppTheme.black,
+              ),
             ),
-          ),
-          const SizedBox(height: 5),
-          Text(title, style: const TextStyle(color: AppTheme.textGrey)),
-        ],
+            const SizedBox(height: 5),
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppTheme.textGrey),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -253,22 +277,29 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
+      width: 380,
       height: 160,
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: AppTheme.white,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title,
-              style:
-                  const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 22),
-          child,
-        ],
+      child: Container(
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: AppTheme.white,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 22),
+            child,
+          ],
+        ),
       ),
     );
   }
@@ -293,7 +324,10 @@ class _PresenceStatus extends StatelessWidget {
           size: 30,
         ),
         const SizedBox(height: 6),
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+        Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
       ],
     );
   }
