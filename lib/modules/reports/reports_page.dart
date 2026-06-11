@@ -36,6 +36,8 @@ class _ReportsPageState extends State<ReportsPage> {
 
   List sales = [];
   List expenses = [];
+  List employees = [];
+  Map<String, String> employeeNames = {};
 
   @override
   void initState() {
@@ -95,9 +97,25 @@ class _ReportsPageState extends State<ReportsPage> {
       );
     }
 
-    final salesResponse = await salesQuery.order('sale_date', ascending: false);
-    final expensesResponse =
-        await expensesQuery.order('expense_date', ascending: false);
+    final salesResponse = await salesQuery.order(
+      'sale_date',
+      ascending: false,
+    );
+
+    final expensesResponse = await expensesQuery.order(
+      'expense_date',
+      ascending: false,
+    );
+
+    final employeesResponse = await Supabase.instance.client
+        .from('employees')
+        .select('id, full_name');
+
+    final names = <String, String>{};
+
+    for (final employee in employeesResponse) {
+      names[employee['id']] = employee['full_name'] ?? 'Employé inconnu';
+    }
 
     double salesTotal = 0;
     double cashTotal = 0;
@@ -133,6 +151,9 @@ class _ReportsPageState extends State<ReportsPage> {
     }
 
     setState(() {
+      employees = employeesResponse;
+      employeeNames = names;
+
       sales = salesResponse;
       expenses = expensesResponse;
 
@@ -208,6 +229,16 @@ class _ReportsPageState extends State<ReportsPage> {
     }
   }
 
+  String employeeName(Map sale) {
+    final employeeId = sale['employee_id'];
+
+    if (employeeId == null) {
+      return 'Vente produit';
+    }
+
+    return employeeNames[employeeId] ?? 'Employé inconnu';
+  }
+
   String paymentLabel(dynamic value) {
     if (value == 'cash') return 'Espèces';
     if (value == 'mobile_money') return 'Mobile Money';
@@ -275,10 +306,18 @@ class _ReportsPageState extends State<ReportsPage> {
             ),
             pw.SizedBox(height: 8),
             pw.TableHelper.fromTextArray(
-              headers: ['Date', 'Montant', 'Paiement', 'Commission', 'Salon'],
+              headers: [
+                'Date',
+                'Employé',
+                'Montant',
+                'Paiement',
+                'Commission',
+                'Salon',
+              ],
               data: sales.map((sale) {
                 return [
                   saleDate(sale),
+                  employeeName(sale),
                   money((sale['total_amount'] as num?)?.toDouble() ?? 0),
                   paymentLabel(sale['payment_method']),
                   money((sale['employee_amount'] as num?)?.toDouble() ?? 0),
@@ -320,6 +359,7 @@ class _ReportsPageState extends State<ReportsPage> {
     final excel = excel_package.Excel.createExcel();
 
     final summarySheet = excel['Résumé'];
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Indicateur'),
       excel_package.TextCellValue('Valeur'),
@@ -329,50 +369,62 @@ class _ReportsPageState extends State<ReportsPage> {
       excel_package.TextCellValue('Période'),
       excel_package.TextCellValue(periodTitle()),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Espèces'),
       excel_package.DoubleCellValue(totalCash),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Mobile Money'),
       excel_package.DoubleCellValue(totalMobileMoney),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Carte'),
       excel_package.DoubleCellValue(totalCard),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Total ventes'),
       excel_package.DoubleCellValue(totalSales),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Dépenses incluses'),
       excel_package.DoubleCellValue(totalExpenses),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Résultat net'),
       excel_package.DoubleCellValue(netResult),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Clients'),
       excel_package.IntCellValue(totalClients),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Transactions'),
       excel_package.IntCellValue(totalTransactions),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Commissions'),
       excel_package.DoubleCellValue(totalCommissions),
     ]);
+
     summarySheet.appendRow([
       excel_package.TextCellValue('Part salon brute'),
       excel_package.DoubleCellValue(totalSalon),
     ]);
 
     final salesSheet = excel['Ventes'];
+
     salesSheet.appendRow([
       excel_package.TextCellValue('Date'),
+      excel_package.TextCellValue('Employé'),
       excel_package.TextCellValue('Montant'),
       excel_package.TextCellValue('Paiement'),
       excel_package.TextCellValue('Commission'),
@@ -382,10 +434,13 @@ class _ReportsPageState extends State<ReportsPage> {
     for (final sale in sales) {
       salesSheet.appendRow([
         excel_package.TextCellValue(saleDate(sale)),
+        excel_package.TextCellValue(employeeName(sale)),
         excel_package.DoubleCellValue(
           (sale['total_amount'] as num?)?.toDouble() ?? 0,
         ),
-        excel_package.TextCellValue(paymentLabel(sale['payment_method'])),
+        excel_package.TextCellValue(
+          paymentLabel(sale['payment_method']),
+        ),
         excel_package.DoubleCellValue(
           (sale['employee_amount'] as num?)?.toDouble() ?? 0,
         ),
@@ -396,6 +451,7 @@ class _ReportsPageState extends State<ReportsPage> {
     }
 
     final expensesSheet = excel['Dépenses'];
+
     expensesSheet.appendRow([
       excel_package.TextCellValue('Date'),
       excel_package.TextCellValue('Catégorie'),
@@ -676,7 +732,10 @@ class _ReportsPageState extends State<ReportsPage> {
                                           ),
                                         ),
                                         subtitle: Text(
-                                          '${paymentLabel(sale['payment_method'])} • Commission : ${money((sale['employee_amount'] as num?)?.toDouble() ?? 0)} • Salon : ${money((sale['salon_amount'] as num?)?.toDouble() ?? 0)}',
+                                          '${employeeName(sale)} • '
+                                          '${paymentLabel(sale['payment_method'])} • '
+                                          'Commission : ${money((sale['employee_amount'] as num?)?.toDouble() ?? 0)} • '
+                                          'Salon : ${money((sale['salon_amount'] as num?)?.toDouble() ?? 0)}',
                                         ),
                                         trailing: Text(
                                           saleDate(sale),
