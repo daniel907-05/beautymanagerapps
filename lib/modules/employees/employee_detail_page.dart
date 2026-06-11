@@ -32,9 +32,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   }
 
   Future<void> loadEmployeeStats() async {
-    setState(() {
-      loading = true;
-    });
+    setState(() => loading = true);
 
     final employeeId = widget.employee['id'];
     final now = DateTime.now();
@@ -92,7 +90,9 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
     });
   }
 
-  String money(double value) => '${value.toStringAsFixed(0)} FCFA';
+  String money(double value) {
+    return '${value.toStringAsFixed(0)} FCFA';
+  }
 
   bool present(String key) {
     if (attendance == null) return false;
@@ -102,6 +102,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   @override
   Widget build(BuildContext context) {
     final employee = widget.employee;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final cardWidth = screenWidth > 1400 ? 260.0 : 230.0;
 
     return Container(
       color: AppTheme.background,
@@ -122,6 +124,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                       Expanded(
                         child: Text(
                           employee['full_name'] ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.w900,
@@ -150,21 +154,25 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                     runSpacing: 16,
                     children: [
                       _InfoCard(
+                        width: cardWidth,
                         title: 'Clients aujourd’hui',
                         value: totalClients.toString(),
                         icon: Icons.people_outline,
                       ),
                       _InfoCard(
+                        width: cardWidth,
                         title: 'CA généré',
                         value: money(totalSales),
                         icon: Icons.payments_outlined,
                       ),
                       _InfoCard(
+                        width: cardWidth,
                         title: 'Commission à payer',
                         value: money(totalCommission),
                         icon: Icons.badge_outlined,
                       ),
                       _InfoCard(
+                        width: cardWidth,
                         title: 'Part salon',
                         value: money(totalSalon),
                         icon: Icons.account_balance_wallet_outlined,
@@ -208,6 +216,22 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 24),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      color: AppTheme.white,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: const Text(
+                      'Historique détaillé de l’employé à ajouter plus tard',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.textGrey,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -216,11 +240,13 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
 }
 
 class _InfoCard extends StatelessWidget {
+  final double width;
   final String title;
   final String value;
   final IconData icon;
 
   const _InfoCard({
+    required this.width,
     required this.title,
     required this.value,
     required this.icon,
@@ -229,8 +255,8 @@ class _InfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 250,
-      height: 150,
+      width: width,
+      height: 145,
       child: Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
@@ -257,7 +283,10 @@ class _InfoCard extends StatelessWidget {
               title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppTheme.textGrey),
+              style: const TextStyle(
+                color: AppTheme.textGrey,
+                fontSize: 13,
+              ),
             ),
           ],
         ),
