@@ -11,6 +11,7 @@ import '../services/services_page.dart';
 import '../sales/sales_history_page.dart';
 import '../stock/stock_history_page.dart';
 import '../expenses/expenses_page.dart';
+import '../cash_closure/cash_closure_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -62,6 +63,8 @@ class _DashboardPageState extends State<DashboardPage> {
         return const StockHistoryPage();
       case 'expenses':
         return const ExpensesPage();
+      case 'cash_closure':
+        return const CashClosurePage();
       default:
         return const _DashboardHome();
     }
@@ -496,6 +499,12 @@ class _Sidebar extends StatelessWidget {
               label: 'Caisse',
               active: selectedPage == 'caisse',
               onTap: () => onPageSelected('caisse'),
+            ),
+            _MenuItem(
+              icon: Icons.lock_outline,
+              label: 'Clôture caisse',
+              active: selectedPage == 'cash_closure',
+              onTap: () => onPageSelected('cash_closure'),
             ),
             _MenuItem(
               icon: Icons.money_off_csred_outlined,
