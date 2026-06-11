@@ -21,7 +21,10 @@ class _CashClosurePageState extends State<CashClosurePage> {
   String selectedPeriod = 'today';
   DateTime? selectedDate;
 
-  double expectedAmount = 0;
+  double cashAmount = 0;
+  double mobileMoneyAmount = 0;
+  double cardAmount = 0;
+  double totalSalesAmount = 0;
 
   final actualController = TextEditingController();
 
@@ -35,19 +38,17 @@ class _CashClosurePageState extends State<CashClosurePage> {
 
   double get actualAmount => double.tryParse(actualController.text.trim()) ?? 0;
 
+  double get expectedAmount => cashAmount;
+
   double get difference => actualAmount - expectedAmount;
 
   Future<void> loadData() async {
-    setState(() {
-      loading = true;
-    });
+    setState(() => loading = true);
 
     await loadExpectedAmount();
     await loadSessions();
 
-    setState(() {
-      loading = false;
-    });
+    setState(() => loading = false);
   }
 
   Future<void> loadExpectedAmount() async {
@@ -65,17 +66,33 @@ class _CashClosurePageState extends State<CashClosurePage> {
         .from('sales')
         .select()
         .eq('status', 'validated')
-        .eq('payment_method', 'cash')
         .gte('sale_date', startOfDay)
         .lt('sale_date', endOfDay);
 
+    double cash = 0;
+    double mobile = 0;
+    double card = 0;
     double total = 0;
 
     for (final sale in sales) {
-      total += (sale['total_amount'] as num?)?.toDouble() ?? 0;
+      final amount = (sale['total_amount'] as num?)?.toDouble() ?? 0;
+      final method = sale['payment_method'];
+
+      total += amount;
+
+      if (method == 'cash') {
+        cash += amount;
+      } else if (method == 'mobile_money') {
+        mobile += amount;
+      } else if (method == 'card') {
+        card += amount;
+      }
     }
 
-    expectedAmount = total;
+    cashAmount = cash;
+    mobileMoneyAmount = mobile;
+    cardAmount = card;
+    totalSalesAmount = total;
   }
 
   Future<void> loadSessions() async {
@@ -88,41 +105,19 @@ class _CashClosurePageState extends State<CashClosurePage> {
       startDate = DateTime(now.year, now.month, now.day);
       endDate = startDate.add(const Duration(days: 1));
     } else if (selectedPeriod == 'week') {
-      final monday = now.subtract(
-        Duration(days: now.weekday - 1),
-      );
-
-      startDate = DateTime(
-        monday.year,
-        monday.month,
-        monday.day,
-      );
-
-      endDate = startDate.add(
-        const Duration(days: 7),
-      );
+      final monday = now.subtract(Duration(days: now.weekday - 1));
+      startDate = DateTime(monday.year, monday.month, monday.day);
+      endDate = startDate.add(const Duration(days: 7));
     } else if (selectedPeriod == 'month') {
-      startDate = DateTime(
-        now.year,
-        now.month,
-        1,
-      );
-
-      endDate = DateTime(
-        now.year,
-        now.month + 1,
-        1,
-      );
+      startDate = DateTime(now.year, now.month, 1);
+      endDate = DateTime(now.year, now.month + 1, 1);
     } else if (selectedPeriod == 'date' && selectedDate != null) {
       startDate = DateTime(
         selectedDate!.year,
         selectedDate!.month,
         selectedDate!.day,
       );
-
-      endDate = startDate.add(
-        const Duration(days: 1),
-      );
+      endDate = startDate.add(const Duration(days: 1));
     }
 
     var query = Supabase.instance.client.from('cash_sessions').select();
@@ -161,9 +156,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
       return;
     }
 
-    setState(() {
-      saving = true;
-    });
+    setState(() => saving = true);
 
     final today = DateTime.now().toIso8601String().split('T').first;
 
@@ -175,9 +168,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
         .maybeSingle();
 
     if (existingSession != null) {
-      setState(() {
-        saving = false;
-      });
+      setState(() => saving = false);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -202,9 +193,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
 
     await loadData();
 
-    setState(() {
-      saving = false;
-    });
+    setState(() => saving = false);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -247,9 +236,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
   }
 
   String selectedDateLabel() {
-    if (selectedDate == null) {
-      return 'Choisir une date';
-    }
+    if (selectedDate == null) return 'Choisir une date';
 
     return '${selectedDate!.day.toString().padLeft(2, '0')}/'
         '${selectedDate!.month.toString().padLeft(2, '0')}/'
@@ -259,15 +246,11 @@ class _CashClosurePageState extends State<CashClosurePage> {
   String sessionDate(Map session) {
     final raw = session['session_date'];
 
-    if (raw == null) {
-      return '-';
-    }
+    if (raw == null) return '-';
 
     final date = DateTime.tryParse(raw.toString());
 
-    if (date == null) {
-      return raw.toString();
-    }
+    if (date == null) return raw.toString();
 
     return '${date.day.toString().padLeft(2, '0')}/'
         '${date.month.toString().padLeft(2, '0')}/'
@@ -275,14 +258,8 @@ class _CashClosurePageState extends State<CashClosurePage> {
   }
 
   Color differenceColor(double value) {
-    if (value == 0) {
-      return Colors.green;
-    }
-
-    if (value > 0) {
-      return Colors.orange;
-    }
-
+    if (value == 0) return Colors.green;
+    if (value > 0) return Colors.orange;
     return Colors.red;
   }
 
@@ -303,43 +280,28 @@ class _CashClosurePageState extends State<CashClosurePage> {
                 ),
               ),
               pw.SizedBox(height: 20),
-              pw.Text(
-                'Montant attendu : ${money(expectedAmount)}',
-              ),
-              pw.Text(
-                'Montant compte : ${money(actualAmount)}',
-              ),
-              pw.Text(
-                'Difference : ${money(difference)}',
-              ),
+              pw.Text('Especes attendues : ${money(cashAmount)}'),
+              pw.Text('Mobile Money : ${money(mobileMoneyAmount)}'),
+              pw.Text('Carte : ${money(cardAmount)}'),
+              pw.Text('Total ventes : ${money(totalSalesAmount)}'),
+              pw.SizedBox(height: 12),
+              pw.Text('Montant compte en especes : ${money(actualAmount)}'),
+              pw.Text('Difference especes : ${money(difference)}'),
               pw.SizedBox(height: 20),
               pw.Text(
                 'Historique des clotures',
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                ),
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
               ),
               pw.SizedBox(height: 10),
               pw.TableHelper.fromTextArray(
-                headers: [
-                  'Date',
-                  'Attendu',
-                  'Reel',
-                  'Difference',
-                  'Statut',
-                ],
+                headers: ['Date', 'Attendu', 'Reel', 'Difference', 'Statut'],
                 data: sessions.map((session) {
                   return [
                     sessionDate(session),
                     money(
-                      (session['expected_amount'] as num?)?.toDouble() ?? 0,
-                    ),
-                    money(
-                      (session['actual_amount'] as num?)?.toDouble() ?? 0,
-                    ),
-                    money(
-                      (session['difference'] as num?)?.toDouble() ?? 0,
-                    ),
+                        (session['expected_amount'] as num?)?.toDouble() ?? 0),
+                    money((session['actual_amount'] as num?)?.toDouble() ?? 0),
+                    money((session['difference'] as num?)?.toDouble() ?? 0),
                     session['status'] ?? '-',
                   ];
                 }).toList(),
@@ -367,9 +329,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
       color: AppTheme.background,
       padding: const EdgeInsets.all(30),
       child: loading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
+          ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -390,7 +350,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
                             ),
                             SizedBox(height: 6),
                             Text(
-                              'Contrôlez la caisse et imprimez la clôture',
+                              'Contrôlez les espèces et suivez les paiements',
                               style: TextStyle(
                                 fontSize: 16,
                                 color: AppTheme.textGrey,
@@ -412,19 +372,37 @@ class _CashClosurePageState extends State<CashClosurePage> {
                     runSpacing: 16,
                     children: [
                       _CashCard(
-                        title: 'Montant attendu',
-                        value: money(expectedAmount),
+                        title: 'Espèces attendues',
+                        value: money(cashAmount),
+                        icon: Icons.payments,
+                        color: AppTheme.gold,
+                      ),
+                      _CashCard(
+                        title: 'Mobile Money',
+                        value: money(mobileMoneyAmount),
+                        icon: Icons.phone_android,
+                        color: Colors.blue,
+                      ),
+                      _CashCard(
+                        title: 'Carte',
+                        value: money(cardAmount),
+                        icon: Icons.credit_card,
+                        color: Colors.purple,
+                      ),
+                      _CashCard(
+                        title: 'Total ventes',
+                        value: money(totalSalesAmount),
                         icon: Icons.point_of_sale,
                         color: AppTheme.gold,
                       ),
                       _CashCard(
                         title: 'Montant compté',
                         value: money(actualAmount),
-                        icon: Icons.payments,
+                        icon: Icons.account_balance_wallet,
                         color: AppTheme.gold,
                       ),
                       _CashCard(
-                        title: 'Différence',
+                        title: 'Différence espèces',
                         value: money(difference),
                         icon: Icons.compare_arrows,
                         color: differenceColor(difference),
@@ -450,12 +428,10 @@ class _CashClosurePageState extends State<CashClosurePage> {
                             controller: actualController,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'Montant réellement compté',
+                              labelText: 'Espèces réellement comptées',
                               border: OutlineInputBorder(),
                             ),
-                            onChanged: (_) {
-                              setState(() {});
-                            },
+                            onChanged: (_) => setState(() {}),
                           ),
                         ),
                         ElevatedButton.icon(
@@ -566,8 +542,8 @@ class _CashClosurePageState extends State<CashClosurePage> {
                                   ),
                                 ),
                                 subtitle: Text(
-                                  'Attendu : ${money((session['expected_amount'] as num?)?.toDouble() ?? 0)} • '
-                                  'Réel : ${money((session['actual_amount'] as num?)?.toDouble() ?? 0)}',
+                                  'Attendu espèces : ${money((session['expected_amount'] as num?)?.toDouble() ?? 0)} • '
+                                  'Compté : ${money((session['actual_amount'] as num?)?.toDouble() ?? 0)}',
                                 ),
                                 trailing: Text(
                                   money(diff),
@@ -629,9 +605,7 @@ class _CashCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               title,
-              style: const TextStyle(
-                color: AppTheme.textGrey,
-              ),
+              style: const TextStyle(color: AppTheme.textGrey),
             ),
           ],
         ),
