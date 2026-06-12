@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/auth/user_role.dart';
 import '../../core/theme/app_theme.dart';
 import '../dashboard/dashboard_page.dart';
 
@@ -121,8 +124,50 @@ class _FeatureLine extends StatelessWidget {
   }
 }
 
-class _LoginCard extends StatelessWidget {
+class _LoginCard extends StatefulWidget {
   const _LoginCard();
+
+  @override
+  State<_LoginCard> createState() => _LoginCardState();
+}
+
+class _LoginCardState extends State<_LoginCard> {
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+
+  bool loading = false;
+
+  Future<void> login() async {
+    try {
+      setState(() => loading = true);
+
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: emailController.text.trim(),
+        password: passwordController.text.trim(),
+      );
+
+      await UserRole.loadRole();
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const DashboardPage(),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur connexion : $e')),
+        );
+      }
+    }
+
+    if (mounted) {
+      setState(() => loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -177,6 +222,7 @@ class _LoginCard extends StatelessWidget {
           ),
           const SizedBox(height: 30),
           TextField(
+            controller: emailController,
             keyboardType: TextInputType.emailAddress,
             decoration: InputDecoration(
               labelText: 'Email',
@@ -188,6 +234,7 @@ class _LoginCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           TextField(
+            controller: passwordController,
             obscureText: true,
             decoration: InputDecoration(
               labelText: 'Mot de passe',
@@ -213,17 +260,10 @@ class _LoginCard extends StatelessWidget {
             width: double.infinity,
             height: 54,
             child: ElevatedButton(
-              onPressed: () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const DashboardPage(),
-                  ),
-                );
-              },
-              child: const Text(
-                'Connexion sécurisée',
-                style: TextStyle(fontSize: 16),
+              onPressed: loading ? null : login,
+              child: Text(
+                loading ? 'Connexion...' : 'Connexion sécurisée',
+                style: const TextStyle(fontSize: 16),
               ),
             ),
           ),
