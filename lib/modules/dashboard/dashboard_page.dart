@@ -14,6 +14,9 @@ import '../sales/sales_history_page.dart';
 import '../services/services_page.dart';
 import '../stock/stock_history_page.dart';
 import '../settings/settings_page.dart';
+import '../admin/admin_page.dart';
+import '../admin/activity_logs_page.dart';
+import '../../core/utils/date_helper.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -124,6 +127,10 @@ class _DashboardPageState extends State<DashboardPage> {
             : const _AccessDeniedPage();
       case 'settings':
         return const SettingsPage();
+      case 'admin':
+        return const AdminPage();
+      case 'activity_logs':
+        return const ActivityLogsPage();
       default:
         return const _DashboardHome();
     }
@@ -154,6 +161,11 @@ class _DashboardHomeState extends State<_DashboardHome> {
   void initState() {
     super.initState();
     loadDashboardData();
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        loadDashboardData(); // ou loadSales(), loadDashboardData(), loadData()
+      }
+    });
   }
 
   Future<void> loadDashboardData() async {
@@ -161,16 +173,14 @@ class _DashboardHomeState extends State<_DashboardHome> {
       loading = true;
     });
 
-    final now = DateTime.now();
     DateTime? startDate;
 
     if (selectedPeriod == 'today') {
-      startDate = DateTime(now.year, now.month, now.day);
+      startDate = DateHelper.startOfToday();
     } else if (selectedPeriod == 'week') {
-      final monday = now.subtract(Duration(days: now.weekday - 1));
-      startDate = DateTime(monday.year, monday.month, monday.day);
+      startDate = DateHelper.startOfWeek();
     } else if (selectedPeriod == 'month') {
-      startDate = DateTime(now.year, now.month, 1);
+      startDate = DateHelper.startOfMonth();
     } else {
       startDate = null;
     }
@@ -539,6 +549,18 @@ class _Sidebar extends StatelessWidget {
               label: 'Dashboard',
               active: selectedPage == 'dashboard',
               onTap: () => onPageSelected('dashboard'),
+            ),
+            _MenuItem(
+              icon: Icons.history_toggle_off_outlined,
+              label: 'Journal',
+              active: selectedPage == 'activity_logs',
+              onTap: () => onPageSelected('activity_logs'),
+            ),
+            _MenuItem(
+              icon: Icons.admin_panel_settings_outlined,
+              label: 'Administration',
+              active: selectedPage == 'admin',
+              onTap: () => onPageSelected('admin'),
             ),
             if (canSeeAttendance)
               _MenuItem(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/logs/activity_logger.dart';
 
 class ProductsPage extends StatefulWidget {
   const ProductsPage({super.key});
@@ -89,6 +90,10 @@ class _ProductsPageState extends State<ProductsPage> {
                     'stock_quantity': stock,
                     'is_active': true,
                   });
+                  await ActivityLogger.log(
+                    action: 'PRODUIT',
+                    description: 'Produit ajouté : ${nameController.text}',
+                  );
 
                   if (mounted) {
                     Navigator.pop(context);

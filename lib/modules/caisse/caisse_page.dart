@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/logs/activity_logger.dart';
+import '../../core/utils/date_helper.dart';
 
 class CaissePage extends StatefulWidget {
   const CaissePage({super.key});
@@ -167,6 +169,7 @@ class _CaissePageState extends State<CaissePage> {
             'salon_amount': salonAmount,
             'payment_method': paymentMethod,
             'status': 'validated',
+            'sale_date': DateHelper.localIsoNow(),
           })
           .select()
           .single();
@@ -219,6 +222,10 @@ class _CaissePageState extends State<CaissePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Vente enregistrée avec succès')),
+        );
+        await ActivityLogger.log(
+          action: 'VENTE',
+          description: 'Nouvelle vente de ${money(totalAmount)}',
         );
 
         setState(() {

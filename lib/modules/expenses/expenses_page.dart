@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/logs/activity_logger.dart';
 
 class ExpensesPage extends StatefulWidget {
   const ExpensesPage({super.key});
@@ -202,7 +203,10 @@ class _ExpensesPageState extends State<ExpensesPage> {
                       'description': descriptionController.text.trim(),
                       'include_in_reports': includeInReports,
                     });
-
+                    await ActivityLogger.log(
+                      action: 'DEPENSE',
+                      description: 'Dépense : ${amountController.text}',
+                    );
                     if (mounted) {
                       Navigator.pop(context);
                       loadExpenses();

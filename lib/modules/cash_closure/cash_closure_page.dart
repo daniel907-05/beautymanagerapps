@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../../core/utils/date_helper.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/settings/salon_settings.dart';
+import '../../core/logs/activity_logger.dart';
 
 class CashClosurePage extends StatefulWidget {
   const CashClosurePage({super.key});
@@ -158,7 +160,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
 
     setState(() => saving = true);
 
-    final today = DateTime.now().toIso8601String().split('T').first;
+    final today = DateHelper.todayDateOnly();
 
     final existingSession = await Supabase.instance.client
         .from('cash_sessions')
@@ -192,6 +194,10 @@ class _CashClosurePageState extends State<CashClosurePage> {
     actualController.clear();
 
     await loadData();
+    await ActivityLogger.log(
+      action: 'CLOTURE_CAISSE',
+      description: 'Clôture caisse : ${money(actual)}',
+    );
 
     setState(() => saving = false);
 
@@ -264,6 +270,7 @@ class _CashClosurePageState extends State<CashClosurePage> {
   }
 
   Future<Uint8List> buildPdf() async {
+    await SalonSettings.load();
     final pdf = pw.Document();
 
     pdf.addPage(
@@ -273,12 +280,17 @@ class _CashClosurePageState extends State<CashClosurePage> {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(
-                'BeautyManagerApps - Cloture de caisse',
+                '${SalonSettings.salonName} - Clôture de caisse',
                 style: pw.TextStyle(
                   fontSize: 22,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
+              pw.SizedBox(height: 6),
+              pw.Text(SalonSettings.salonPhone),
+              pw.Text(SalonSettings.salonAddress),
+              pw.Text(SalonSettings.salonEmail),
+              pw.SizedBox(height: 10),
               pw.SizedBox(height: 20),
               pw.Text('Especes attendues : ${money(cashAmount)}'),
               pw.Text('Mobile Money : ${money(mobileMoneyAmount)}'),
@@ -313,6 +325,21 @@ class _CashClosurePageState extends State<CashClosurePage> {
     );
 
     return pdf.save();
+    pdf.addPage(
+      pw.Page(
+        build: (context) => pw.Column(
+          children: [
+            pw.Divider(),
+            pw.SizedBox(height: 10),
+            pw.Text(
+              SalonSettings.receiptFooter,
+              textAlign: pw.TextAlign.center,
+              style: const pw.TextStyle(fontSize: 10),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> printClosure() async {

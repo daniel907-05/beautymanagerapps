@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/auth/user_role.dart';
+import '../../core/logs/activity_logger.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_helper.dart';
 
 class SalesHistoryPage extends StatefulWidget {
   const SalesHistoryPage({super.key});
@@ -11,6 +15,7 @@ class SalesHistoryPage extends StatefulWidget {
 
 class _SalesHistoryPageState extends State<SalesHistoryPage> {
   bool loading = true;
+  bool cancelling = false;
 
   List sales = [];
   List employees = [];
@@ -24,6 +29,11 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
   void initState() {
     super.initState();
     loadSales();
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        loadSales(); // ou loadSales(), loadDashboardData(), loadData()
+      }
+    });
   }
 
   Future<void> loadSales() async {
@@ -45,15 +55,14 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
     DateTime? endDate;
 
     if (selectedPeriod == 'today') {
-      startDate = DateTime(now.year, now.month, now.day);
-      endDate = startDate.add(const Duration(days: 1));
+      startDate = DateHelper.startOfToday();
+      endDate = DateHelper.endOfToday();
     } else if (selectedPeriod == 'week') {
-      final monday = now.subtract(Duration(days: now.weekday - 1));
-      startDate = DateTime(monday.year, monday.month, monday.day);
-      endDate = startDate.add(const Duration(days: 7));
+      startDate = DateHelper.startOfWeek();
+      endDate = DateHelper.endOfWeek();
     } else if (selectedPeriod == 'month') {
-      startDate = DateTime(now.year, now.month, 1);
-      endDate = DateTime(now.year, now.month + 1, 1);
+      startDate = DateHelper.startOfMonth();
+      endDate = DateHelper.endOfMonth();
     } else if (selectedPeriod == 'date' && selectedDate != null) {
       startDate = DateTime(
         selectedDate!.year,
@@ -116,6 +125,238 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
     });
 
     loadSales();
+  }
+
+  Future<List> loadSaleItems(String saleId) async {
+    return await Supabase.instance.client
+        .from('sale_items')
+        .select()
+        .eq('sale_id', saleId);
+  }
+
+  Future<String> itemName(Map item) async {
+    try {
+      if (item['item_type'] == 'service' && item['service_id'] != null) {
+        final service = await Supabase.instance.client
+            .from('services')
+            .select('name')
+            .eq('id', item['service_id'])
+            .maybeSingle();
+
+        return service?['name'] ?? 'Service';
+      }
+
+      if (item['item_type'] == 'product' && item['product_id'] != null) {
+        final product = await Supabase.instance.client
+            .from('products')
+            .select('name')
+            .eq('id', item['product_id'])
+            .maybeSingle();
+
+        return product?['name'] ?? 'Produit';
+      }
+    } catch (_) {}
+
+    return item['item_type'] ?? '-';
+  }
+
+  Future<void> showSaleDetails(Map sale) async {
+    final items = await loadSaleItems(sale['id']);
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Détail de la vente'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _DetailLine(label: 'Date', value: saleDate(sale)),
+                  _DetailLine(label: 'Employé', value: employeeName(sale)),
+                  _DetailLine(
+                    label: 'Paiement',
+                    value: paymentLabel(sale['payment_method']),
+                  ),
+                  _DetailLine(
+                    label: 'Montant total',
+                    value: money(sale['total_amount']),
+                  ),
+                  _DetailLine(
+                    label: 'Commission',
+                    value: money(sale['employee_amount']),
+                  ),
+                  _DetailLine(
+                    label: 'Part salon',
+                    value: money(sale['salon_amount']),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Articles / services',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (items.isEmpty)
+                    const Text('Aucun détail trouvé')
+                  else
+                    ...items.map((item) {
+                      return FutureBuilder<String>(
+                        future: itemName(item),
+                        builder: (context, snapshot) {
+                          final name = snapshot.data ?? 'Chargement...';
+
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            subtitle: Text(
+                              'Quantité : ${item['quantity']} • Prix : ${money(item['unit_price'])}',
+                            ),
+                            trailing: Text(
+                              money(item['total_price']),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Fermer'),
+            ),
+            if (UserRole.isAdmin)
+              ElevatedButton.icon(
+                onPressed: cancelling
+                    ? null
+                    : () async {
+                        Navigator.pop(context);
+                        await confirmCancelSale(sale);
+                      },
+                icon: const Icon(Icons.cancel),
+                label: const Text('Annuler la vente'),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> confirmCancelSale(Map sale) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Annuler la vente ?'),
+          content: const Text(
+            'Cette action annulera la vente et remettra le stock des produits concernés. Elle est réservée à l’administrateur.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Non'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Oui, annuler'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    await cancelSale(sale);
+  }
+
+  Future<void> cancelSale(Map sale) async {
+    if (!UserRole.isAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Seul l’administrateur peut annuler une vente'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => cancelling = true);
+
+    try {
+      final items = await loadSaleItems(sale['id']);
+
+      for (final item in items) {
+        if (item['item_type'] == 'product' && item['product_id'] != null) {
+          final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
+
+          final product = await Supabase.instance.client
+              .from('products')
+              .select('stock_quantity')
+              .eq('id', item['product_id'])
+              .maybeSingle();
+
+          final currentStock =
+              (product?['stock_quantity'] as num?)?.toInt() ?? 0;
+
+          await Supabase.instance.client.from('products').update({
+            'stock_quantity': currentStock + quantity,
+          }).eq('id', item['product_id']);
+
+          await Supabase.instance.client.from('stock_movements').insert({
+            'product_id': item['product_id'],
+            'movement_type': 'in',
+            'quantity': quantity,
+            'reason': 'Annulation vente',
+          });
+        }
+      }
+
+      await Supabase.instance.client.from('sales').update({
+        'status': 'cancelled',
+      }).eq('id', sale['id']);
+
+      await ActivityLogger.log(
+        action: 'ANNULATION_VENTE',
+        description: 'Vente annulée : ${money(sale['total_amount'])}',
+      );
+
+      await loadSales();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Vente annulée avec succès')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur annulation : $e')),
+        );
+      }
+    }
+
+    if (mounted) {
+      setState(() => cancelling = false);
+    }
   }
 
   String money(dynamic value) {
@@ -256,7 +497,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                             ),
                             SizedBox(height: 6),
                             Text(
-                              'Recherchez les ventes par date, période ou employé',
+                              'Recherchez, consultez et contrôlez les ventes',
                               style: TextStyle(
                                 fontSize: 16,
                                 color: AppTheme.textGrey,
@@ -397,7 +638,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                   ),
                   const SizedBox(height: 20),
                   Container(
-                    height: 520,
+                    height: 540,
                     width: double.infinity,
                     padding: const EdgeInsets.all(22),
                     decoration: BoxDecoration(
@@ -415,6 +656,7 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                               final sale = sales[index];
 
                               return ListTile(
+                                onTap: () => showSaleDetails(sale),
                                 leading: CircleAvatar(
                                   backgroundColor:
                                       AppTheme.gold.withOpacity(0.18),
@@ -434,11 +676,25 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                                   'Commission : ${money(sale['employee_amount'])} • '
                                   'Salon : ${money(sale['salon_amount'])}',
                                 ),
-                                trailing: Text(
-                                  saleDate(sale),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                trailing: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      saleDate(sale),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'Voir détail',
+                                      style: TextStyle(
+                                        color: AppTheme.textGrey,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               );
                             },
@@ -447,6 +703,45 @@ class _SalesHistoryPageState extends State<SalesHistoryPage> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _DetailLine extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DetailLine({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppTheme.textGrey,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

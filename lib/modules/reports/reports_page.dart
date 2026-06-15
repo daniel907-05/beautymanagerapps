@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/utils/date_helper.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/settings/salon_settings.dart';
 
 class EmployeeStats {
   final String name;
@@ -57,6 +59,11 @@ class _ReportsPageState extends State<ReportsPage> {
   void initState() {
     super.initState();
     loadReports();
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        loadReports(); // ou loadSales(), loadDashboardData(), loadData()
+      }
+    });
   }
 
   Future<void> loadReports() async {
@@ -67,15 +74,14 @@ class _ReportsPageState extends State<ReportsPage> {
     DateTime? endDate;
 
     if (selectedPeriod == 'today') {
-      startDate = DateTime(now.year, now.month, now.day);
-      endDate = startDate.add(const Duration(days: 1));
+      startDate = DateHelper.startOfToday();
+      endDate = DateHelper.endOfToday();
     } else if (selectedPeriod == 'week') {
-      final monday = now.subtract(Duration(days: now.weekday - 1));
-      startDate = DateTime(monday.year, monday.month, monday.day);
-      endDate = startDate.add(const Duration(days: 7));
+      startDate = DateHelper.startOfWeek();
+      endDate = DateHelper.endOfWeek();
     } else if (selectedPeriod == 'month') {
-      startDate = DateTime(now.year, now.month, 1);
-      endDate = DateTime(now.year, now.month + 1, 1);
+      startDate = DateHelper.startOfMonth();
+      endDate = DateHelper.endOfMonth();
     } else if (selectedPeriod == 'date' && selectedDate != null) {
       startDate = DateTime(
         selectedDate!.year,
@@ -311,6 +317,8 @@ class _ReportsPageState extends State<ReportsPage> {
   }
 
   Future<Uint8List> buildPdf() async {
+    await SalonSettings.load();
+
     final pdf = pw.Document();
 
     pdf.addPage(
@@ -318,12 +326,16 @@ class _ReportsPageState extends State<ReportsPage> {
         build: (context) {
           return [
             pw.Text(
-              'BeautyManagerApps - Rapport financier',
+              '${SalonSettings.salonName} - Rapport financier',
               style: pw.TextStyle(
                 fontSize: 24,
                 fontWeight: pw.FontWeight.bold,
               ),
             ),
+            pw.SizedBox(height: 6),
+            pw.Text(SalonSettings.salonPhone),
+            pw.Text(SalonSettings.salonAddress),
+            pw.Text(SalonSettings.salonEmail),
             pw.SizedBox(height: 10),
             pw.Text('Période : ${periodTitle()}'),
             pw.SizedBox(height: 20),
@@ -407,6 +419,16 @@ class _ReportsPageState extends State<ReportsPage> {
                 ];
               }).toList(),
             ),
+            pw.SizedBox(height: 30),
+            pw.Divider(),
+            pw.SizedBox(height: 10),
+            pw.Text(
+              SalonSettings.receiptFooter,
+              textAlign: pw.TextAlign.center,
+              style: const pw.TextStyle(
+                fontSize: 10,
+              ),
+            ),
           ];
         },
       ),
@@ -485,6 +507,33 @@ class _ReportsPageState extends State<ReportsPage> {
       excel_package.DoubleCellValue(totalSalon),
     ]);
 
+    final paymentSheet = excel['Paiements'];
+
+    paymentSheet.appendRow([
+      excel_package.TextCellValue('Mode de paiement'),
+      excel_package.TextCellValue('Montant'),
+    ]);
+
+    paymentSheet.appendRow([
+      excel_package.TextCellValue('Espèces'),
+      excel_package.DoubleCellValue(totalCash),
+    ]);
+
+    paymentSheet.appendRow([
+      excel_package.TextCellValue('Mobile Money'),
+      excel_package.DoubleCellValue(totalMobileMoney),
+    ]);
+
+    paymentSheet.appendRow([
+      excel_package.TextCellValue('Carte'),
+      excel_package.DoubleCellValue(totalCard),
+    ]);
+
+    paymentSheet.appendRow([
+      excel_package.TextCellValue('Total paiements'),
+      excel_package.DoubleCellValue(totalSales),
+    ]);
+
     final topEmployeesSheet = excel['Top employés'];
     topEmployeesSheet.appendRow([
       excel_package.TextCellValue('Employé'),
@@ -499,6 +548,124 @@ class _ReportsPageState extends State<ReportsPage> {
         excel_package.DoubleCellValue(employee.sales),
         excel_package.IntCellValue(employee.clients),
         excel_package.DoubleCellValue(employee.commissions),
+      ]);
+    }
+
+    final pivotSheet = excel['Tableau croisé'];
+
+    pivotSheet.appendRow([
+      excel_package.TextCellValue('Employé'),
+      excel_package.TextCellValue('Paiement'),
+      excel_package.TextCellValue('CA'),
+      excel_package.TextCellValue('Clients'),
+      excel_package.TextCellValue('Commissions'),
+      excel_package.TextCellValue('Part salon'),
+    ]);
+
+    final Map<String, Map<String, dynamic>> pivotData = {};
+
+    for (final sale in sales) {
+      final employee = employeeName(sale);
+      final payment = paymentLabel(sale['payment_method']);
+      final key = '$employee|$payment';
+
+      pivotData.putIfAbsent(
+        key,
+        () => {
+          'employee': employee,
+          'payment': payment,
+          'sales': 0.0,
+          'clients': 0,
+          'commissions': 0.0,
+          'salon': 0.0,
+        },
+      );
+
+      pivotData[key]!['sales'] = (pivotData[key]!['sales'] as double) +
+          ((sale['total_amount'] as num?)?.toDouble() ?? 0);
+
+      pivotData[key]!['clients'] = (pivotData[key]!['clients'] as int) +
+          ((sale['total_clients'] as num?)?.toInt() ?? 0);
+
+      pivotData[key]!['commissions'] =
+          (pivotData[key]!['commissions'] as double) +
+              ((sale['employee_amount'] as num?)?.toDouble() ?? 0);
+
+      pivotData[key]!['salon'] = (pivotData[key]!['salon'] as double) +
+          ((sale['salon_amount'] as num?)?.toDouble() ?? 0);
+    }
+
+    for (final row in pivotData.values) {
+      pivotSheet.appendRow([
+        excel_package.TextCellValue(row['employee']),
+        excel_package.TextCellValue(row['payment']),
+        excel_package.DoubleCellValue(row['sales']),
+        excel_package.IntCellValue(row['clients']),
+        excel_package.DoubleCellValue(row['commissions']),
+        excel_package.DoubleCellValue(row['salon']),
+      ]);
+    }
+
+    final dailySheet = excel['Croisé par jour'];
+
+    dailySheet.appendRow([
+      excel_package.TextCellValue('Date'),
+      excel_package.TextCellValue('CA'),
+      excel_package.TextCellValue('Espèces'),
+      excel_package.TextCellValue('Mobile Money'),
+      excel_package.TextCellValue('Carte'),
+      excel_package.TextCellValue('Clients'),
+      excel_package.TextCellValue('Transactions'),
+    ]);
+
+    final Map<String, Map<String, dynamic>> dailyData = {};
+
+    for (final sale in sales) {
+      final date = saleDate(sale).split(' ').first;
+      final method = sale['payment_method'];
+      final amount = (sale['total_amount'] as num?)?.toDouble() ?? 0;
+
+      dailyData.putIfAbsent(
+        date,
+        () => {
+          'date': date,
+          'sales': 0.0,
+          'cash': 0.0,
+          'mobile_money': 0.0,
+          'card': 0.0,
+          'clients': 0,
+          'transactions': 0,
+        },
+      );
+
+      dailyData[date]!['sales'] =
+          (dailyData[date]!['sales'] as double) + amount;
+      dailyData[date]!['clients'] = (dailyData[date]!['clients'] as int) +
+          ((sale['total_clients'] as num?)?.toInt() ?? 0);
+      dailyData[date]!['transactions'] =
+          (dailyData[date]!['transactions'] as int) + 1;
+
+      if (method == 'cash') {
+        dailyData[date]!['cash'] =
+            (dailyData[date]!['cash'] as double) + amount;
+      } else if (method == 'mobile_money') {
+        dailyData[date]!['mobile_money'] =
+            (dailyData[date]!['mobile_money'] as double) + amount;
+      } else if (method == 'card') {
+        dailyData[date]!['card'] =
+            (dailyData[date]!['card'] as double) + amount;
+      }
+    }
+
+    for (final row in dailyData.values) {
+      dailySheet.appendRow([
+        excel_package.TextCellValue(row['date']),
+        excel_package.DoubleCellValue(row['sales']),
+        excel_package.DoubleCellValue(row['cash']),
+        excel_package.DoubleCellValue(row['mobile_money']),
+        excel_package.DoubleCellValue(row['card']),
+        excel_package.IntCellValue(row['clients']),
+        excel_package.IntCellValue(row['transactions']),
       ]);
     }
 
