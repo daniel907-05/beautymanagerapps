@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/utils/date_helper.dart';
-import '../../core/theme/app_theme.dart';
-import '../../core/settings/salon_settings.dart';
+
+import '../../core/auth/user_role.dart';
 import '../../core/logs/activity_logger.dart';
+import '../../core/settings/salon_settings.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_helper.dart';
 
 class CashClosurePage extends StatefulWidget {
   const CashClosurePage({super.key});
@@ -25,9 +27,9 @@ class _CashClosurePageState extends State<CashClosurePage> {
 
   double cashAmount = 0;
   double mobileMoneyAmount = 0;
-  double cardAmount = 0;
   double totalSalesAmount = 0;
 
+  Map<String, dynamic>? todayClosedSession;
   final actualController = TextEditingController();
 
   List sessions = [];
@@ -39,30 +41,30 @@ class _CashClosurePageState extends State<CashClosurePage> {
   }
 
   double get actualAmount => double.tryParse(actualController.text.trim()) ?? 0;
-
   double get expectedAmount => cashAmount;
-
   double get difference => actualAmount - expectedAmount;
+
+  String businessDateOnly() {
+    final now = DateTime.now();
+    final businessNow =
+        now.hour < 7 ? now.subtract(const Duration(days: 1)) : now;
+    return DateTime(businessNow.year, businessNow.month, businessNow.day)
+        .toIso8601String()
+        .split('T')
+        .first;
+  }
 
   Future<void> loadData() async {
     setState(() => loading = true);
-
     await loadExpectedAmount();
+    await loadTodayClosedSession();
     await loadSessions();
-
-    setState(() => loading = false);
+    if (mounted) setState(() => loading = false);
   }
 
   Future<void> loadExpectedAmount() async {
-    final now = DateTime.now();
-
-    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
-
-    final endOfDay = DateTime(
-      now.year,
-      now.month,
-      now.day + 1,
-    ).toIso8601String();
+    final startOfDay = DateHelper.startOfToday().toIso8601String();
+    final endOfDay = DateHelper.endOfToday().toIso8601String();
 
     final sales = await Supabase.instance.client
         .from('sales')
@@ -73,7 +75,6 @@ class _CashClosurePageState extends State<CashClosurePage> {
 
     double cash = 0;
     double mobile = 0;
-    double card = 0;
     double total = 0;
 
     for (final sale in sales) {
@@ -86,39 +87,41 @@ class _CashClosurePageState extends State<CashClosurePage> {
         cash += amount;
       } else if (method == 'mobile_money') {
         mobile += amount;
-      } else if (method == 'card') {
-        card += amount;
       }
     }
 
     cashAmount = cash;
     mobileMoneyAmount = mobile;
-    cardAmount = card;
     totalSalesAmount = total;
   }
 
-  Future<void> loadSessions() async {
-    final now = DateTime.now();
+  Future<void> loadTodayClosedSession() async {
+    final today = businessDateOnly();
 
+    todayClosedSession = await Supabase.instance.client
+        .from('cash_sessions')
+        .select()
+        .eq('session_date', today)
+        .eq('status', 'closed')
+        .maybeSingle();
+  }
+
+  Future<void> loadSessions() async {
     DateTime? startDate;
     DateTime? endDate;
 
     if (selectedPeriod == 'today') {
-      startDate = DateTime(now.year, now.month, now.day);
-      endDate = startDate.add(const Duration(days: 1));
+      startDate = DateHelper.startOfToday();
+      endDate = DateHelper.endOfToday();
     } else if (selectedPeriod == 'week') {
-      final monday = now.subtract(Duration(days: now.weekday - 1));
-      startDate = DateTime(monday.year, monday.month, monday.day);
-      endDate = startDate.add(const Duration(days: 7));
+      startDate = DateHelper.startOfWeek();
+      endDate = DateHelper.endOfWeek();
     } else if (selectedPeriod == 'month') {
-      startDate = DateTime(now.year, now.month, 1);
-      endDate = DateTime(now.year, now.month + 1, 1);
+      startDate = DateHelper.startOfMonth();
+      endDate = DateHelper.endOfMonth();
     } else if (selectedPeriod == 'date' && selectedDate != null) {
-      startDate = DateTime(
-        selectedDate!.year,
-        selectedDate!.month,
-        selectedDate!.day,
-      );
+      startDate =
+          DateTime(selectedDate!.year, selectedDate!.month, selectedDate!.day);
       endDate = startDate.add(const Duration(days: 1));
     }
 
@@ -126,24 +129,15 @@ class _CashClosurePageState extends State<CashClosurePage> {
 
     if (startDate != null) {
       query = query.gte(
-        'session_date',
-        startDate.toIso8601String().split('T').first,
-      );
+          'session_date', startDate.toIso8601String().split('T').first);
     }
 
     if (endDate != null) {
-      query = query.lt(
-        'session_date',
-        endDate.toIso8601String().split('T').first,
-      );
+      query =
+          query.lt('session_date', endDate.toIso8601String().split('T').first);
     }
 
-    final response = await query.order(
-      'session_date',
-      ascending: false,
-    );
-
-    sessions = response;
+    sessions = await query.order('session_date', ascending: false);
   }
 
   Future<void> closeCash() async {
@@ -151,16 +145,14 @@ class _CashClosurePageState extends State<CashClosurePage> {
 
     if (actual <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Saisissez le montant compté'),
-        ),
+        const SnackBar(content: Text('Saisissez le montant compté')),
       );
       return;
     }
 
     setState(() => saving = true);
 
-    final today = DateHelper.todayDateOnly();
+    final today = businessDateOnly();
 
     final existingSession = await Supabase.instance.client
         .from('cash_sessions')
@@ -170,16 +162,15 @@ class _CashClosurePageState extends State<CashClosurePage> {
         .maybeSingle();
 
     if (existingSession != null) {
-      setState(() => saving = false);
-
       if (mounted) {
+        setState(() => saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('La caisse est déjà clôturée aujourd’hui'),
+            content: Text(
+                'La caisse est déjà clôturée. Réouverture possible seulement par manager/admin.'),
           ),
         );
       }
-
       return;
     }
 
@@ -191,23 +182,57 @@ class _CashClosurePageState extends State<CashClosurePage> {
       'status': 'closed',
     });
 
-    actualController.clear();
-
-    await loadData();
     await ActivityLogger.log(
       action: 'CLOTURE_CAISSE',
       description: 'Clôture caisse : ${money(actual)}',
     );
 
-    setState(() => saving = false);
+    actualController.clear();
+    await loadData();
 
     if (mounted) {
+      setState(() => saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Caisse clôturée avec succès'),
-        ),
+        const SnackBar(content: Text('Caisse clôturée avec succès')),
       );
     }
+  }
+
+  Future<void> reopenCash() async {
+    if (!(UserRole.isAdmin || UserRole.isManager)) return;
+    if (todayClosedSession == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Réouvrir la clôture ?'),
+        content: const Text(
+            'La caisse pourra être clôturée à nouveau pour la journée courante.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Réouvrir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    await Supabase.instance.client
+        .from('cash_sessions')
+        .update({'status': 'reopened'}).eq('id', todayClosedSession!['id']);
+
+    await ActivityLogger.log(
+      action: 'REOUVERTURE_CAISSE',
+      description: 'Clôture caisse réouverte par manager/admin',
+    );
+
+    await loadData();
   }
 
   Future<void> pickDate() async {
@@ -223,7 +248,6 @@ class _CashClosurePageState extends State<CashClosurePage> {
         selectedDate = date;
         selectedPeriod = 'date';
       });
-
       loadData();
     }
   }
@@ -233,17 +257,13 @@ class _CashClosurePageState extends State<CashClosurePage> {
       selectedPeriod = 'today';
       selectedDate = null;
     });
-
     loadData();
   }
 
-  String money(double value) {
-    return '${value.toStringAsFixed(0)} FCFA';
-  }
+  String money(double value) => '${value.toStringAsFixed(0)} FCFA';
 
   String selectedDateLabel() {
     if (selectedDate == null) return 'Choisir une date';
-
     return '${selectedDate!.day.toString().padLeft(2, '0')}/'
         '${selectedDate!.month.toString().padLeft(2, '0')}/'
         '${selectedDate!.year}';
@@ -251,13 +271,9 @@ class _CashClosurePageState extends State<CashClosurePage> {
 
   String sessionDate(Map session) {
     final raw = session['session_date'];
-
     if (raw == null) return '-';
-
     final date = DateTime.tryParse(raw.toString());
-
     if (date == null) return raw.toString();
-
     return '${date.day.toString().padLeft(2, '0')}/'
         '${date.month.toString().padLeft(2, '0')}/'
         '${date.year}';
@@ -290,23 +306,21 @@ class _CashClosurePageState extends State<CashClosurePage> {
               pw.Text(SalonSettings.salonPhone),
               pw.Text(SalonSettings.salonAddress),
               pw.Text(SalonSettings.salonEmail),
-              pw.SizedBox(height: 10),
               pw.SizedBox(height: 20),
-              pw.Text('Especes attendues : ${money(cashAmount)}'),
+              pw.Text('Espèces attendues : ${money(cashAmount)}'),
               pw.Text('Mobile Money : ${money(mobileMoneyAmount)}'),
-              pw.Text('Carte : ${money(cardAmount)}'),
               pw.Text('Total ventes : ${money(totalSalesAmount)}'),
               pw.SizedBox(height: 12),
-              pw.Text('Montant compte en especes : ${money(actualAmount)}'),
-              pw.Text('Difference especes : ${money(difference)}'),
+              pw.Text('Montant compté en espèces : ${money(actualAmount)}'),
+              pw.Text('Différence espèces : ${money(difference)}'),
               pw.SizedBox(height: 20),
               pw.Text(
-                'Historique des clotures',
+                'Historique des clôtures',
                 style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
               ),
               pw.SizedBox(height: 10),
               pw.TableHelper.fromTextArray(
-                headers: ['Date', 'Attendu', 'Reel', 'Difference', 'Statut'],
+                headers: ['Date', 'Attendu', 'Réel', 'Différence', 'Statut'],
                 data: sessions.map((session) {
                   return [
                     sessionDate(session),
@@ -318,6 +332,13 @@ class _CashClosurePageState extends State<CashClosurePage> {
                   ];
                 }).toList(),
               ),
+              pw.SizedBox(height: 24),
+              pw.Divider(),
+              pw.Text(
+                SalonSettings.receiptFooter,
+                textAlign: pw.TextAlign.center,
+                style: const pw.TextStyle(fontSize: 10),
+              ),
             ],
           );
         },
@@ -325,36 +346,20 @@ class _CashClosurePageState extends State<CashClosurePage> {
     );
 
     return pdf.save();
-    pdf.addPage(
-      pw.Page(
-        build: (context) => pw.Column(
-          children: [
-            pw.Divider(),
-            pw.SizedBox(height: 10),
-            pw.Text(
-              SalonSettings.receiptFooter,
-              textAlign: pw.TextAlign.center,
-              style: const pw.TextStyle(fontSize: 10),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> printClosure() async {
     final pdfData = await buildPdf();
-
-    await Printing.layoutPdf(
-      onLayout: (_) async => pdfData,
-    );
+    await Printing.layoutPdf(onLayout: (_) async => pdfData);
   }
 
   @override
   Widget build(BuildContext context) {
+    final alreadyClosed = todayClosedSession != null;
+
     return Container(
       color: AppTheme.background,
-      padding: const EdgeInsets.all(30),
+      padding: const EdgeInsets.all(22),
       child: loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -370,33 +375,35 @@ class _CashClosurePageState extends State<CashClosurePage> {
                             Text(
                               'Clôture caisse',
                               style: TextStyle(
-                                fontSize: 32,
+                                fontSize: 28,
                                 fontWeight: FontWeight.w900,
                                 color: AppTheme.black,
                               ),
                             ),
-                            SizedBox(height: 6),
+                            SizedBox(height: 4),
                             Text(
                               'Contrôlez les espèces et suivez les paiements',
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 14,
                                 color: AppTheme.textGrey,
                               ),
                             ),
                           ],
                         ),
                       ),
-                      ElevatedButton.icon(
-                        onPressed: loadData,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Actualiser'),
-                      ),
+                      if (alreadyClosed &&
+                          (UserRole.isAdmin || UserRole.isManager))
+                        OutlinedButton.icon(
+                          onPressed: reopenCash,
+                          icon: const Icon(Icons.lock_open),
+                          label: const Text('Réouvrir clôture'),
+                        ),
                     ],
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 18),
                   Wrap(
-                    spacing: 16,
-                    runSpacing: 16,
+                    spacing: 12,
+                    runSpacing: 12,
                     children: [
                       _CashCard(
                         title: 'Espèces attendues',
@@ -411,48 +418,43 @@ class _CashClosurePageState extends State<CashClosurePage> {
                         color: Colors.blue,
                       ),
                       _CashCard(
-                        title: 'Carte',
-                        value: money(cardAmount),
-                        icon: Icons.credit_card,
-                        color: Colors.purple,
-                      ),
-                      _CashCard(
                         title: 'Total ventes',
                         value: money(totalSalesAmount),
                         icon: Icons.point_of_sale,
                         color: AppTheme.gold,
                       ),
                       _CashCard(
-                        title: 'Montant compté',
+                        title: 'Compté',
                         value: money(actualAmount),
                         icon: Icons.account_balance_wallet,
                         color: AppTheme.gold,
                       ),
                       _CashCard(
-                        title: 'Différence espèces',
+                        title: 'Différence',
                         value: money(difference),
                         icon: Icons.compare_arrows,
                         color: differenceColor(difference),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 18),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(22),
+                    padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: AppTheme.white,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(18),
                     ),
                     child: Wrap(
-                      spacing: 16,
-                      runSpacing: 16,
+                      spacing: 12,
+                      runSpacing: 12,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         SizedBox(
-                          width: 260,
+                          width: 240,
                           child: TextField(
                             controller: actualController,
+                            enabled: !alreadyClosed,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
                               labelText: 'Espèces réellement comptées',
@@ -462,28 +464,25 @@ class _CashClosurePageState extends State<CashClosurePage> {
                           ),
                         ),
                         ElevatedButton.icon(
-                          onPressed: saving ? null : closeCash,
+                          onPressed: saving || alreadyClosed ? null : closeCash,
                           icon: const Icon(Icons.lock),
                           label: Text(
-                            saving
-                                ? 'Clôture en cours...'
-                                : 'Clôturer la caisse',
+                            alreadyClosed
+                                ? 'Clôture effectuée'
+                                : saving
+                                    ? 'Clôture en cours...'
+                                    : 'Clôturer la caisse',
                           ),
                         ),
                         OutlinedButton.icon(
                           onPressed: printClosure,
                           icon: const Icon(Icons.picture_as_pdf),
-                          label: const Text('Exporter PDF'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: printClosure,
-                          icon: const Icon(Icons.print),
-                          label: const Text('Imprimer clôture'),
+                          label: const Text('PDF / Imprimer'),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 18),
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
@@ -491,21 +490,10 @@ class _CashClosurePageState extends State<CashClosurePage> {
                       SegmentedButton<String>(
                         segments: const [
                           ButtonSegment(
-                            value: 'today',
-                            label: Text('Aujourd’hui'),
-                          ),
-                          ButtonSegment(
-                            value: 'week',
-                            label: Text('Semaine'),
-                          ),
-                          ButtonSegment(
-                            value: 'month',
-                            label: Text('Mois'),
-                          ),
-                          ButtonSegment(
-                            value: 'all',
-                            label: Text('Total'),
-                          ),
+                              value: 'today', label: Text('Aujourd’hui')),
+                          ButtonSegment(value: 'week', label: Text('Semaine')),
+                          ButtonSegment(value: 'month', label: Text('Mois')),
+                          ButtonSegment(value: 'all', label: Text('Total')),
                         ],
                         selected: {
                           selectedPeriod == 'date' ? 'all' : selectedPeriod
@@ -515,7 +503,6 @@ class _CashClosurePageState extends State<CashClosurePage> {
                             selectedPeriod = value.first;
                             selectedDate = null;
                           });
-
                           loadData();
                         },
                       ),
@@ -531,19 +518,18 @@ class _CashClosurePageState extends State<CashClosurePage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 18),
                   Container(
-                    height: 430,
+                    height: 380,
                     width: double.infinity,
-                    padding: const EdgeInsets.all(22),
+                    padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: AppTheme.white,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(18),
                     ),
                     child: sessions.isEmpty
                         ? const Center(
-                            child: Text('Aucune clôture enregistrée'),
-                          )
+                            child: Text('Aucune clôture enregistrée'))
                         : ListView.separated(
                             itemCount: sessions.length,
                             separatorBuilder: (_, __) => const Divider(),
@@ -554,23 +540,20 @@ class _CashClosurePageState extends State<CashClosurePage> {
                                       0;
 
                               return ListTile(
+                                dense: true,
                                 leading: CircleAvatar(
                                   backgroundColor:
                                       differenceColor(diff).withOpacity(0.15),
-                                  child: Icon(
-                                    Icons.lock,
-                                    color: differenceColor(diff),
-                                  ),
+                                  child: Icon(Icons.lock,
+                                      color: differenceColor(diff)),
                                 ),
                                 title: Text(
                                   sessionDate(session),
                                   style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                  ),
+                                      fontWeight: FontWeight.w900),
                                 ),
                                 subtitle: Text(
-                                  'Attendu espèces : ${money((session['expected_amount'] as num?)?.toDouble() ?? 0)} • '
-                                  'Compté : ${money((session['actual_amount'] as num?)?.toDouble() ?? 0)}',
+                                  'Attendu espèces : ${money((session['expected_amount'] as num?)?.toDouble() ?? 0)} • Compté : ${money((session['actual_amount'] as num?)?.toDouble() ?? 0)}',
                                 ),
                                 trailing: Text(
                                   money(diff),
@@ -606,33 +589,35 @@ class _CashCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 260,
-      height: 140,
+      width: 190,
+      height: 100,
       child: Container(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: AppTheme.white,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(18),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: color, size: 28),
+            Icon(icon, color: color, size: 22),
             const Spacer(),
             Text(
               value,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 20,
+                fontSize: 16,
                 fontWeight: FontWeight.w900,
                 color: AppTheme.black,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               title,
-              style: const TextStyle(color: AppTheme.textGrey),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppTheme.textGrey, fontSize: 12),
             ),
           ],
         ),

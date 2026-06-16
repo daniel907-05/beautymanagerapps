@@ -1,9 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/auth/user_role.dart';
 import '../../core/theme/app_theme.dart';
-import '../attendance/attendance_page.dart';
+import '../../core/utils/date_helper.dart';
+import '../admin/activity_logs_page.dart';
+import '../admin/admin_page.dart';
+import '../attendance/retards_page.dart';
+import '../auth/login_page.dart';
 import '../caisse/caisse_page.dart';
 import '../cash_closure/cash_closure_page.dart';
 import '../employees/employees_page.dart';
@@ -12,11 +17,8 @@ import '../products/products_page.dart';
 import '../reports/reports_page.dart';
 import '../sales/sales_history_page.dart';
 import '../services/services_page.dart';
-import '../stock/stock_history_page.dart';
 import '../settings/settings_page.dart';
-import '../admin/admin_page.dart';
-import '../admin/activity_logs_page.dart';
-import '../../core/utils/date_helper.dart';
+import '../stock/stock_history_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -37,20 +39,14 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<void> loadRole() async {
     await UserRole.loadRole();
-
     if (!mounted) return;
-
-    setState(() {
-      loadingRole = false;
-    });
+    setState(() => loadingRole = false);
   }
 
   bool get canAccessBusinessPages => UserRole.isAdmin || UserRole.isManager;
-
   bool get canAccessCashierPages =>
       UserRole.isAdmin || UserRole.isManager || UserRole.isCashier;
-
-  bool get canAccessAttendance =>
+  bool get canAccessRetards =>
       UserRole.isAdmin ||
       UserRole.isManager ||
       UserRole.isCashier ||
@@ -72,9 +68,7 @@ class _DashboardPageState extends State<DashboardPage> {
           _Sidebar(
             selectedPage: selectedPage,
             onPageSelected: (page) {
-              setState(() {
-                selectedPage = page;
-              });
+              setState(() => selectedPage = page);
             },
           ),
           Expanded(child: _buildPage()),
@@ -85,10 +79,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildPage() {
     switch (selectedPage) {
-      case 'attendance':
-        return canAccessAttendance
-            ? const AttendancePage()
-            : const _AccessDeniedPage();
       case 'employees':
         return canAccessBusinessPages
             ? const EmployeesPage()
@@ -98,7 +88,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ? const CaissePage()
             : const _AccessDeniedPage();
       case 'products':
-        return canAccessBusinessPages
+        return (canAccessBusinessPages || UserRole.isCashier)
             ? const ProductsPage()
             : const _AccessDeniedPage();
       case 'reports':
@@ -106,11 +96,11 @@ class _DashboardPageState extends State<DashboardPage> {
             ? const ReportsPage()
             : const _AccessDeniedPage();
       case 'services':
-        return canAccessBusinessPages
+        return (canAccessBusinessPages || UserRole.isCashier)
             ? const ServicesPage()
             : const _AccessDeniedPage();
       case 'sales_history':
-        return canAccessCashierPages
+        return (canAccessCashierPages || UserRole.isEmployee)
             ? const SalesHistoryPage()
             : const _AccessDeniedPage();
       case 'stock_history':
@@ -126,11 +116,19 @@ class _DashboardPageState extends State<DashboardPage> {
             ? const CashClosurePage()
             : const _AccessDeniedPage();
       case 'settings':
-        return const SettingsPage();
+        return canAccessBusinessPages
+            ? const SettingsPage()
+            : const _AccessDeniedPage();
       case 'admin':
-        return const AdminPage();
+        return UserRole.isAdmin ? const AdminPage() : const _AccessDeniedPage();
       case 'activity_logs':
-        return const ActivityLogsPage();
+        return canAccessBusinessPages
+            ? const ActivityLogsPage()
+            : const _AccessDeniedPage();
+      case 'retards':
+        return canAccessRetards
+            ? const RetardsPage()
+            : const _AccessDeniedPage();
       default:
         return const _DashboardHome();
     }
@@ -145,14 +143,13 @@ class _DashboardHome extends StatefulWidget {
 }
 
 class _DashboardHomeState extends State<_DashboardHome> {
+  Timer? _refreshTimer;
   bool loading = true;
   String selectedPeriod = 'today';
-
   double chiffreTotal = 0;
   int clientsTotal = 0;
   double commissionsTotal = 0;
   double partSalonTotal = 0;
-
   List recentSales = [];
   List lowStockProducts = [];
   Map<String, String> employeeNames = {};
@@ -161,28 +158,27 @@ class _DashboardHomeState extends State<_DashboardHome> {
   void initState() {
     super.initState();
     loadDashboardData();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        loadDashboardData(); // ou loadSales(), loadDashboardData(), loadData()
-      }
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) loadDashboardData(showLoader: false);
     });
   }
 
-  Future<void> loadDashboardData() async {
-    setState(() {
-      loading = true;
-    });
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> loadDashboardData({bool showLoader = true}) async {
+    if (showLoader) setState(() => loading = true);
 
     DateTime? startDate;
-
     if (selectedPeriod == 'today') {
       startDate = DateHelper.startOfToday();
     } else if (selectedPeriod == 'week') {
       startDate = DateHelper.startOfWeek();
     } else if (selectedPeriod == 'month') {
       startDate = DateHelper.startOfMonth();
-    } else {
-      startDate = null;
     }
 
     final sales = startDate == null
@@ -209,8 +205,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
         .lte('stock_quantity', 5)
         .order('stock_quantity');
 
-    final Map<String, String> names = {};
-
+    final names = <String, String>{};
     for (final employee in employees) {
       names[employee['id']] = employee['full_name'] ?? 'Employé inconnu';
     }
@@ -228,7 +223,6 @@ class _DashboardHomeState extends State<_DashboardHome> {
     }
 
     if (!mounted) return;
-
     setState(() {
       chiffreTotal = total;
       clientsTotal = clients;
@@ -241,9 +235,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
     });
   }
 
-  String money(double value) {
-    return '${value.toStringAsFixed(0)} FCFA';
-  }
+  String money(double value) => '${value.toStringAsFixed(0)} FCFA';
 
   String get periodLabel {
     switch (selectedPeriod) {
@@ -277,11 +269,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
 
   String employeeNameForSale(Map sale) {
     final employeeId = sale['employee_id'];
-
-    if (employeeId == null) {
-      return 'Vente produit';
-    }
-
+    if (employeeId == null) return 'Vente produit';
     return employeeNames[employeeId] ?? 'Employé inconnu';
   }
 
@@ -289,7 +277,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
   Widget build(BuildContext context) {
     return Container(
       color: AppTheme.background,
-      padding: const EdgeInsets.all(30),
+      padding: const EdgeInsets.all(22),
       child: loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -305,98 +293,73 @@ class _DashboardHomeState extends State<_DashboardHome> {
                             Text(
                               'Bonjour Daniel 👋',
                               style: TextStyle(
-                                fontSize: 32,
+                                fontSize: 28,
                                 fontWeight: FontWeight.w900,
                                 color: AppTheme.black,
                               ),
                             ),
-                            SizedBox(height: 6),
+                            SizedBox(height: 4),
                             Text(
                               'Vue réelle des performances du salon',
                               style: TextStyle(
-                                fontSize: 16,
-                                color: AppTheme.textGrey,
-                              ),
+                                  fontSize: 14, color: AppTheme.textGrey),
                             ),
                           ],
                         ),
                       ),
-                      ElevatedButton.icon(
-                        onPressed: loadDashboardData,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Actualiser'),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                   SegmentedButton<String>(
                     segments: const [
-                      ButtonSegment(
-                        value: 'today',
-                        label: Text('Aujourd’hui'),
-                      ),
-                      ButtonSegment(
-                        value: 'week',
-                        label: Text('Cette semaine'),
-                      ),
-                      ButtonSegment(
-                        value: 'month',
-                        label: Text('Ce mois'),
-                      ),
-                      ButtonSegment(
-                        value: 'all',
-                        label: Text('Total général'),
-                      ),
+                      ButtonSegment(value: 'today', label: Text('Aujourd’hui')),
+                      ButtonSegment(value: 'week', label: Text('Semaine')),
+                      ButtonSegment(value: 'month', label: Text('Mois')),
+                      ButtonSegment(value: 'all', label: Text('Total')),
                     ],
                     selected: {selectedPeriod},
                     onSelectionChanged: (value) {
-                      setState(() {
-                        selectedPeriod = value.first;
-                      });
+                      setState(() => selectedPeriod = value.first);
                       loadDashboardData();
                     },
                   ),
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 20),
                   GridView.count(
                     crossAxisCount:
                         MediaQuery.of(context).size.width > 1500 ? 4 : 2,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 18,
-                    mainAxisSpacing: 18,
-                    childAspectRatio: 1.8,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: 3.2,
                     children: [
                       _StatCard(
-                        title: 'Chiffre $cardSuffix',
-                        value: money(chiffreTotal),
-                        icon: Icons.payments_outlined,
-                      ),
+                          title: 'Chiffre $cardSuffix',
+                          value: money(chiffreTotal),
+                          icon: Icons.payments_outlined),
                       _StatCard(
-                        title: 'Clients $cardSuffix',
-                        value: clientsTotal.toString(),
-                        icon: Icons.people_outline,
-                      ),
+                          title: 'Clients $cardSuffix',
+                          value: clientsTotal.toString(),
+                          icon: Icons.people_outline),
                       _StatCard(
-                        title: 'Commissions',
-                        value: money(commissionsTotal),
-                        icon: Icons.badge_outlined,
-                      ),
+                          title: 'Commissions',
+                          value: money(commissionsTotal),
+                          icon: Icons.badge_outlined),
                       _StatCard(
-                        title: 'Part salon',
-                        value: money(partSalonTotal),
-                        icon: Icons.account_balance_wallet_outlined,
-                      ),
+                          title: 'Part salon',
+                          value: money(partSalonTotal),
+                          icon: Icons.account_balance_wallet_outlined),
                     ],
                   ),
-                  const SizedBox(height: 25),
+                  const SizedBox(height: 18),
                   if (lowStockProducts.isNotEmpty)
                     Container(
                       width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 20),
-                      padding: const EdgeInsets.all(20),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(18),
                         border: Border.all(color: Colors.orange),
                       ),
                       child: Column(
@@ -405,19 +368,16 @@ class _DashboardHomeState extends State<_DashboardHome> {
                           const Text(
                             '⚠ Produits à réapprovisionner',
                             style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                            ),
+                                fontSize: 18, fontWeight: FontWeight.w900),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 10),
                           ...lowStockProducts.map(
                             (product) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              padding: const EdgeInsets.symmetric(vertical: 3),
                               child: Text(
                                 '${product['name']} • Stock : ${product['stock_quantity']}',
                                 style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
+                                    fontWeight: FontWeight.w700),
                               ),
                             ),
                           ),
@@ -425,12 +385,12 @@ class _DashboardHomeState extends State<_DashboardHome> {
                       ),
                     ),
                   Container(
-                    height: 430,
+                    height: 380,
                     width: double.infinity,
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: AppTheme.white,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(18),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -438,18 +398,14 @@ class _DashboardHomeState extends State<_DashboardHome> {
                         Text(
                           'Ventes récentes - $periodLabel',
                           style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                          ),
+                              fontSize: 20, fontWeight: FontWeight.w800),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
                         Expanded(
                           child: recentSales.isEmpty
                               ? Center(
                                   child: Text(
-                                    'Aucune vente enregistrée pour $periodLabel',
-                                  ),
-                                )
+                                      'Aucune vente enregistrée pour $periodLabel'))
                               : ListView.separated(
                                   itemCount: recentSales.length,
                                   separatorBuilder: (_, __) => const Divider(),
@@ -457,25 +413,20 @@ class _DashboardHomeState extends State<_DashboardHome> {
                                     final sale = recentSales[index];
                                     final employeeName =
                                         employeeNameForSale(sale);
-
                                     return ListTile(
+                                      dense: true,
                                       leading: CircleAvatar(
                                         backgroundColor:
                                             AppTheme.gold.withOpacity(0.18),
-                                        child: const Icon(
-                                          Icons.point_of_sale,
-                                          color: AppTheme.gold,
-                                        ),
+                                        child: const Icon(Icons.point_of_sale,
+                                            color: AppTheme.gold),
                                       ),
                                       title: Text(
-                                        money(
-                                          (sale['total_amount'] as num?)
-                                                  ?.toDouble() ??
-                                              0,
-                                        ),
+                                        money((sale['total_amount'] as num?)
+                                                ?.toDouble() ??
+                                            0),
                                         style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                        ),
+                                            fontWeight: FontWeight.w800),
                                       ),
                                       subtitle: Text(
                                         '$employeeName • Commission : ${money((sale['employee_amount'] as num?)?.toDouble() ?? 0)} • Salon : ${money((sale['salon_amount'] as num?)?.toDouble() ?? 0)}',
@@ -483,8 +434,7 @@ class _DashboardHomeState extends State<_DashboardHome> {
                                       trailing: Text(
                                         sale['payment_method'] ?? 'cash',
                                         style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
+                                            fontWeight: FontWeight.w700),
                                       ),
                                     );
                                   },
@@ -510,11 +460,9 @@ class _Sidebar extends StatelessWidget {
   });
 
   bool get canSeeBusinessMenus => UserRole.isAdmin || UserRole.isManager;
-
   bool get canSeeCashierMenus =>
       UserRole.isAdmin || UserRole.isManager || UserRole.isCashier;
-
-  bool get canSeeAttendance =>
+  bool get canSeeRetards =>
       UserRole.isAdmin ||
       UserRole.isManager ||
       UserRole.isCashier ||
@@ -523,9 +471,9 @@ class _Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 260,
+      width: 250,
       color: AppTheme.dark,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -534,75 +482,32 @@ class _Sidebar extends StatelessWidget {
               'BeautyManager',
               style: TextStyle(
                 color: AppTheme.gold,
-                fontSize: 26,
+                fontSize: 24,
                 fontWeight: FontWeight.w900,
               ),
             ),
-            const SizedBox(height: 5),
-            const Text(
-              'Apps Premium',
-              style: TextStyle(color: Colors.white54),
-            ),
-            const SizedBox(height: 35),
+            const SizedBox(height: 4),
+            const Text('Apps Premium', style: TextStyle(color: Colors.white54)),
+            const SizedBox(height: 28),
             _MenuItem(
               icon: Icons.dashboard_outlined,
               label: 'Dashboard',
               active: selectedPage == 'dashboard',
               onTap: () => onPageSelected('dashboard'),
             ),
-            _MenuItem(
-              icon: Icons.history_toggle_off_outlined,
-              label: 'Journal',
-              active: selectedPage == 'activity_logs',
-              onTap: () => onPageSelected('activity_logs'),
-            ),
-            _MenuItem(
-              icon: Icons.admin_panel_settings_outlined,
-              label: 'Administration',
-              active: selectedPage == 'admin',
-              onTap: () => onPageSelected('admin'),
-            ),
-            if (canSeeAttendance)
-              _MenuItem(
-                icon: Icons.access_time,
-                label: 'Présence',
-                active: selectedPage == 'attendance',
-                onTap: () => onPageSelected('attendance'),
-              ),
-            if (canSeeBusinessMenus)
-              _MenuItem(
-                icon: Icons.people_alt_outlined,
-                label: 'Employés',
-                active: selectedPage == 'employees',
-                onTap: () => onPageSelected('employees'),
-              ),
-            if (canSeeBusinessMenus)
-              _MenuItem(
-                icon: Icons.spa_outlined,
-                label: 'Services',
-                active: selectedPage == 'services',
-                onTap: () => onPageSelected('services'),
-              ),
-            if (canSeeBusinessMenus)
-              _MenuItem(
-                icon: Icons.inventory_2_outlined,
-                label: 'Produits',
-                active: selectedPage == 'products',
-                onTap: () => onPageSelected('products'),
-              ),
-            if (canSeeBusinessMenus)
-              _MenuItem(
-                icon: Icons.history_outlined,
-                label: 'Stock',
-                active: selectedPage == 'stock_history',
-                onTap: () => onPageSelected('stock_history'),
-              ),
             if (canSeeCashierMenus)
               _MenuItem(
                 icon: Icons.point_of_sale_outlined,
                 label: 'Caisse',
                 active: selectedPage == 'caisse',
                 onTap: () => onPageSelected('caisse'),
+              ),
+            if (canSeeCashierMenus || UserRole.isEmployee)
+              _MenuItem(
+                icon: Icons.receipt_long_outlined,
+                label: 'Historique ventes',
+                active: selectedPage == 'sales_history',
+                onTap: () => onPageSelected('sales_history'),
               ),
             if (canSeeCashierMenus)
               _MenuItem(
@@ -611,19 +516,47 @@ class _Sidebar extends StatelessWidget {
                 active: selectedPage == 'cash_closure',
                 onTap: () => onPageSelected('cash_closure'),
               ),
+            if (canSeeBusinessMenus || UserRole.isCashier)
+              _MenuItem(
+                icon: Icons.inventory_2_outlined,
+                label: 'Produits',
+                active: selectedPage == 'products',
+                onTap: () => onPageSelected('products'),
+              ),
+            if (canSeeBusinessMenus || UserRole.isCashier)
+              _MenuItem(
+                icon: Icons.spa_outlined,
+                label: 'Services',
+                active: selectedPage == 'services',
+                onTap: () => onPageSelected('services'),
+              ),
+            if (canSeeBusinessMenus)
+              _MenuItem(
+                icon: Icons.people_alt_outlined,
+                label: 'Employés',
+                active: selectedPage == 'employees',
+                onTap: () => onPageSelected('employees'),
+              ),
+            if (canSeeRetards)
+              _MenuItem(
+                icon: Icons.access_time,
+                label: 'Retards',
+                active: selectedPage == 'retards',
+                onTap: () => onPageSelected('retards'),
+              ),
+            if (canSeeBusinessMenus)
+              _MenuItem(
+                icon: Icons.history_outlined,
+                label: 'Stock',
+                active: selectedPage == 'stock_history',
+                onTap: () => onPageSelected('stock_history'),
+              ),
             if (canSeeBusinessMenus)
               _MenuItem(
                 icon: Icons.money_off_csred_outlined,
                 label: 'Dépenses',
                 active: selectedPage == 'expenses',
                 onTap: () => onPageSelected('expenses'),
-              ),
-            if (canSeeCashierMenus)
-              _MenuItem(
-                icon: Icons.receipt_long_outlined,
-                label: 'Historique',
-                active: selectedPage == 'sales_history',
-                onTap: () => onPageSelected('sales_history'),
               ),
             if (canSeeBusinessMenus)
               _MenuItem(
@@ -632,11 +565,42 @@ class _Sidebar extends StatelessWidget {
                 active: selectedPage == 'reports',
                 onTap: () => onPageSelected('reports'),
               ),
+            if (canSeeBusinessMenus)
+              _MenuItem(
+                icon: Icons.history_toggle_off_outlined,
+                label: 'Activités',
+                active: selectedPage == 'activity_logs',
+                onTap: () => onPageSelected('activity_logs'),
+              ),
+            if (canSeeBusinessMenus)
+              _MenuItem(
+                icon: Icons.settings_outlined,
+                label: 'Paramètres',
+                active: selectedPage == 'settings',
+                onTap: () => onPageSelected('settings'),
+              ),
+            if (UserRole.isAdmin)
+              _MenuItem(
+                icon: Icons.admin_panel_settings_outlined,
+                label: 'Administration',
+                active: selectedPage == 'admin',
+                onTap: () => onPageSelected('admin'),
+              ),
+            const SizedBox(height: 12),
             _MenuItem(
-              icon: Icons.settings_outlined,
-              label: 'Paramètres',
-              active: selectedPage == 'settings',
-              onTap: () => onPageSelected('settings'),
+              icon: Icons.logout,
+              label: 'Déconnexion',
+              active: false,
+              onTap: () async {
+                await Supabase.instance.client.auth.signOut();
+                if (context.mounted) {
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginPage()),
+                    (route) => false,
+                  );
+                }
+              },
             ),
           ],
         ),
@@ -682,28 +646,30 @@ class _MenuItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: active ? AppTheme.gold : Colors.transparent,
             borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
             children: [
-              Icon(
-                icon,
-                color: active ? AppTheme.black : AppTheme.gold,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                label,
-                style: TextStyle(
-                  color: active ? AppTheme.black : AppTheme.white,
-                  fontWeight: FontWeight.w700,
+              Icon(icon,
+                  color: active ? AppTheme.black : AppTheme.gold, size: 21),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: active ? AppTheme.black : AppTheme.white,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -728,32 +694,32 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: AppTheme.white,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: AppTheme.gold, size: 32),
+          Icon(icon, color: AppTheme.gold, size: 20),
           const Spacer(),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 24,
+              fontSize: 14,
               fontWeight: FontWeight.w900,
               color: AppTheme.black,
             ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 2),
           Text(
             title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppTheme.textGrey),
+            style: const TextStyle(color: AppTheme.textGrey, fontSize: 11),
           ),
         ],
       ),

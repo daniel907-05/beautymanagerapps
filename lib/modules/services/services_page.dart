@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/logs/activity_logger.dart';
 import '../../core/theme/app_theme.dart';
 
 class ServicesPage extends StatefulWidget {
@@ -13,6 +15,7 @@ class _ServicesPageState extends State<ServicesPage> {
   List services = [];
   List categories = [];
   bool loading = true;
+  String searchText = '';
 
   @override
   void initState() {
@@ -32,6 +35,7 @@ class _ServicesPageState extends State<ServicesPage> {
         .eq('is_active', true)
         .order('name');
 
+    if (!mounted) return;
     setState(() {
       services = servicesResponse;
       categories = categoriesResponse;
@@ -39,16 +43,34 @@ class _ServicesPageState extends State<ServicesPage> {
     });
   }
 
-  Future<void> _showAddServiceDialog() async {
-    final nameController = TextEditingController();
-    final priceController = TextEditingController();
-    String? selectedCategoryId;
+  List get filteredServices {
+    final q = searchText.toLowerCase().trim();
+    if (q.isEmpty) return services;
+
+    return services.where((service) {
+      final name = (service['name'] ?? '').toString().toLowerCase();
+      final category = (service['service_categories']?['name'] ?? '')
+          .toString()
+          .toLowerCase();
+      return name.contains(q) || category.contains(q);
+    }).toList();
+  }
+
+  Future<void> showServiceDialog({Map<String, dynamic>? service}) async {
+    final isEdit = service != null;
+    final nameController = TextEditingController(text: service?['name'] ?? '');
+    final priceController = TextEditingController(
+      text: isEdit
+          ? ((service['price'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)
+          : '',
+    );
+    String? selectedCategoryId = service?['category_id'];
 
     await showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Ajouter un service'),
+          title: Text(isEdit ? 'Modifier service' : 'Ajouter un service'),
           content: StatefulBuilder(
             builder: (context, setDialogState) {
               return SizedBox(
@@ -58,9 +80,7 @@ class _ServicesPageState extends State<ServicesPage> {
                   children: [
                     DropdownButtonFormField<String>(
                       value: selectedCategoryId,
-                      decoration: const InputDecoration(
-                        labelText: 'Catégorie',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Catégorie'),
                       items: categories.map<DropdownMenuItem<String>>((cat) {
                         return DropdownMenuItem<String>(
                           value: cat['id'],
@@ -68,24 +88,17 @@ class _ServicesPageState extends State<ServicesPage> {
                         );
                       }).toList(),
                       onChanged: (value) {
-                        setDialogState(() {
-                          selectedCategoryId = value;
-                        });
+                        setDialogState(() => selectedCategoryId = value);
                       },
                     ),
                     TextField(
-                      controller: nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Nom du service',
-                      ),
-                    ),
+                        controller: nameController,
+                        decoration:
+                            const InputDecoration(labelText: 'Nom du service')),
                     TextField(
-                      controller: priceController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Prix',
-                      ),
-                    ),
+                        controller: priceController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Prix')),
                   ],
                 ),
               );
@@ -93,37 +106,52 @@ class _ServicesPageState extends State<ServicesPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Annuler')),
             ElevatedButton(
               onPressed: () async {
                 if (selectedCategoryId == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Choisissez une catégorie'),
-                    ),
-                  );
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Choisissez une catégorie')));
                   return;
                 }
 
                 final price = double.tryParse(priceController.text.trim()) ?? 0;
 
-                await Supabase.instance.client.from('services').insert({
-                  'category_id': selectedCategoryId,
-                  'name': nameController.text.trim(),
-                  'price': price,
-                  'is_active': true,
-                });
+                if (isEdit) {
+                  await Supabase.instance.client.from('services').update({
+                    'category_id': selectedCategoryId,
+                    'name': nameController.text.trim(),
+                    'price': price,
+                  }).eq('id', service['id']);
+
+                  await ActivityLogger.log(
+                    action: 'SERVICE',
+                    description:
+                        'Service modifié : ${nameController.text.trim()}',
+                  );
+                } else {
+                  await Supabase.instance.client.from('services').insert({
+                    'category_id': selectedCategoryId,
+                    'name': nameController.text.trim(),
+                    'price': price,
+                    'is_active': true,
+                  });
+
+                  await ActivityLogger.log(
+                    action: 'SERVICE',
+                    description:
+                        'Service ajouté : ${nameController.text.trim()}',
+                  );
+                }
 
                 if (mounted) {
                   Navigator.pop(context);
-                  loadData();
-
+                  await loadData();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Service ajouté avec succès'),
-                    ),
+                    SnackBar(
+                        content: Text(
+                            isEdit ? 'Service modifié' : 'Service ajouté')),
                   );
                 }
               },
@@ -135,6 +163,19 @@ class _ServicesPageState extends State<ServicesPage> {
     );
   }
 
+  Future<void> toggleServiceStatus(Map<String, dynamic> service) async {
+    final active = service['is_active'] == true;
+    await Supabase.instance.client
+        .from('services')
+        .update({'is_active': !active}).eq('id', service['id']);
+    await ActivityLogger.log(
+      action: 'SERVICE',
+      description:
+          '${active ? 'Désactivation' : 'Réactivation'} service : ${service['name']}',
+    );
+    await loadData();
+  }
+
   String money(dynamic value) {
     final amount = (value as num?)?.toDouble() ?? 0;
     return '${amount.toStringAsFixed(0)} FCFA';
@@ -144,7 +185,7 @@ class _ServicesPageState extends State<ServicesPage> {
   Widget build(BuildContext context) {
     return Container(
       color: AppTheme.background,
-      padding: const EdgeInsets.all(30),
+      padding: const EdgeInsets.all(22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -154,93 +195,93 @@ class _ServicesPageState extends State<ServicesPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Services',
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w900,
-                        color: AppTheme.black,
-                      ),
-                    ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Gérez les prestations, catégories et prix du salon',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: AppTheme.textGrey,
-                      ),
-                    ),
+                    Text('Services',
+                        style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            color: AppTheme.black)),
+                    SizedBox(height: 4),
+                    Text('Gérez les prestations, catégories et prix du salon',
+                        style:
+                            TextStyle(fontSize: 14, color: AppTheme.textGrey)),
                   ],
                 ),
               ),
               ElevatedButton.icon(
-                onPressed: _showAddServiceDialog,
+                onPressed: () => showServiceDialog(),
                 icon: const Icon(Icons.add),
                 label: const Text('Ajouter service'),
               ),
             ],
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: 360,
+            child: TextField(
+              decoration: const InputDecoration(
+                  labelText: 'Rechercher service',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder()),
+              onChanged: (value) => setState(() => searchText = value),
+            ),
+          ),
+          const SizedBox(height: 16),
           Expanded(
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(22),
+              padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: AppTheme.white,
-                borderRadius: BorderRadius.circular(24),
-              ),
+                  color: AppTheme.white,
+                  borderRadius: BorderRadius.circular(18)),
               child: loading
                   ? const Center(child: CircularProgressIndicator())
-                  : services.isEmpty
-                      ? const Center(
-                          child: Text('Aucun service enregistré'),
-                        )
+                  : filteredServices.isEmpty
+                      ? const Center(child: Text('Aucun service enregistré'))
                       : ListView.separated(
-                          itemCount: services.length,
+                          itemCount: filteredServices.length,
                           separatorBuilder: (_, __) => const Divider(),
                           itemBuilder: (context, index) {
-                            final service = services[index];
+                            final service = filteredServices[index];
                             final category = service['service_categories']
                                     ?['name'] ??
                                 'Sans catégorie';
+                            final active = service['is_active'] == true;
 
                             return ListTile(
+                              dense: true,
                               leading: CircleAvatar(
                                 backgroundColor:
                                     AppTheme.gold.withOpacity(0.18),
-                                child: const Icon(
-                                  Icons.spa,
-                                  color: AppTheme.gold,
-                                ),
+                                child:
+                                    const Icon(Icons.spa, color: AppTheme.gold),
                               ),
-                              title: Text(
-                                service['name'] ?? '',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              subtitle: Text(category),
-                              trailing: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
+                              title: Text(service['name'] ?? '',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800)),
+                              subtitle: Text(
+                                  '$category • ${active ? 'Actif' : 'Inactif'}'),
+                              trailing: Wrap(
+                                spacing: 8,
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  Text(
-                                    money(service['price']),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                                  Text(money(service['price']),
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w800)),
+                                  IconButton(
+                                    tooltip: 'Modifier',
+                                    onPressed: () =>
+                                        showServiceDialog(service: service),
+                                    icon: const Icon(Icons.edit),
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    service['is_active'] == true
-                                        ? 'Actif'
-                                        : 'Inactif',
-                                    style: TextStyle(
-                                      color: service['is_active'] == true
-                                          ? Colors.green
-                                          : Colors.red,
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                                  IconButton(
+                                    tooltip:
+                                        active ? 'Désactiver' : 'Réactiver',
+                                    onPressed: () =>
+                                        toggleServiceStatus(service),
+                                    icon: Icon(active
+                                        ? Icons.delete_outline
+                                        : Icons.restore),
+                                    color: active ? Colors.red : Colors.green,
                                   ),
                                 ],
                               ),

@@ -1,7 +1,13 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/theme/app_theme.dart';
+
 import '../../core/logs/activity_logger.dart';
+import '../../core/settings/salon_settings.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_helper.dart';
 
 class CaissePage extends StatefulWidget {
@@ -53,6 +59,8 @@ class _CaissePageState extends State<CaissePage> {
         .eq('is_active', true)
         .order('name');
 
+    if (!mounted) return;
+
     setState(() {
       employees = employeesResponse;
       services = servicesResponse;
@@ -73,7 +81,7 @@ class _CaissePageState extends State<CaissePage> {
   }
 
   Future<bool> isCashClosedToday() async {
-    final today = DateTime.now().toIso8601String().split('T').first;
+    final today = DateHelper.todayDateOnly();
 
     final closedSession = await Supabase.instance.client
         .from('cash_sessions')
@@ -83,6 +91,81 @@ class _CaissePageState extends State<CaissePage> {
         .maybeSingle();
 
     return closedSession != null;
+  }
+
+  String employeeName() {
+    if (selectedEmployeeId == null) return 'Vente produit';
+
+    final employee = employees.firstWhere(
+      (item) => item['id'] == selectedEmployeeId,
+      orElse: () => {'full_name': 'Employé'},
+    );
+
+    return employee['full_name'] ?? 'Employé';
+  }
+
+  String currentItemName() {
+    if (saleType == 'service') return selectedService?['name'] ?? 'Service';
+    return selectedProduct?['name'] ?? 'Produit';
+  }
+
+  Future<Uint8List> buildTicketPdf(Map sale) async {
+    await SalonSettings.load();
+
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.Page(
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                SalonSettings.salonName,
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(SalonSettings.salonPhone),
+              pw.Text(SalonSettings.salonAddress),
+              pw.SizedBox(height: 12),
+              pw.Text(
+                'Ticket de vente',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Text('Date : ${DateTime.now()}'),
+              pw.Text('Employé : ${employeeName()}'),
+              pw.Text('Article : ${currentItemName()}'),
+              pw.Text('Paiement : ${paymentLabel(paymentMethod)}'),
+              pw.SizedBox(height: 10),
+              pw.Text(
+                'Total : ${money((sale['total_amount'] as num?)?.toDouble() ?? getSelectedAmount())}',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 18),
+              pw.Divider(),
+              pw.Text(
+                SalonSettings.receiptFooter,
+                textAlign: pw.TextAlign.center,
+                style: const pw.TextStyle(fontSize: 10),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  Future<void> printTicket(Map sale) async {
+    final pdfData = await buildTicketPdf(sale);
+    await Printing.layoutPdf(onLayout: (_) async => pdfData);
   }
 
   Future<void> saveSale() async {
@@ -102,9 +185,7 @@ class _CaissePageState extends State<CaissePage> {
     if (saleType == 'service') {
       if (selectedEmployeeId == null || selectedService == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Choisissez un employé et un service'),
-          ),
+          const SnackBar(content: Text('Choisissez un employé et un service')),
         );
         return;
       }
@@ -113,9 +194,7 @@ class _CaissePageState extends State<CaissePage> {
     if (saleType == 'product') {
       if (selectedProduct == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Choisissez un produit'),
-          ),
+          const SnackBar(content: Text('Choisissez un produit')),
         );
         return;
       }
@@ -124,9 +203,7 @@ class _CaissePageState extends State<CaissePage> {
 
       if (quantity <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('La quantité doit être supérieure à 0'),
-          ),
+          const SnackBar(content: Text('La quantité doit être supérieure à 0')),
         );
         return;
       }
@@ -191,9 +268,7 @@ class _CaissePageState extends State<CaissePage> {
             (selectedProduct!['stock_quantity'] as num?)?.toInt() ?? 0;
         final newStock = currentStock - quantity;
 
-        if (newStock < 0) {
-          throw Exception('Stock insuffisant');
-        }
+        if (newStock < 0) throw Exception('Stock insuffisant');
 
         await Supabase.instance.client.from('sale_items').insert({
           'sale_id': sale['id'],
@@ -204,12 +279,8 @@ class _CaissePageState extends State<CaissePage> {
           'total_price': unitPrice * quantity,
         });
 
-        await Supabase.instance.client
-            .from('products')
-            .update({'stock_quantity': newStock}).eq(
-          'id',
-          selectedProduct!['id'],
-        );
+        await Supabase.instance.client.from('products').update(
+            {'stock_quantity': newStock}).eq('id', selectedProduct!['id']);
 
         await Supabase.instance.client.from('stock_movements').insert({
           'product_id': selectedProduct!['id'],
@@ -219,14 +290,17 @@ class _CaissePageState extends State<CaissePage> {
         });
       }
 
+      await ActivityLogger.log(
+        action: 'VENTE',
+        description: 'Nouvelle vente de ${money(totalAmount)}',
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Vente enregistrée avec succès')),
         );
-        await ActivityLogger.log(
-          action: 'VENTE',
-          description: 'Nouvelle vente de ${money(totalAmount)}',
-        );
+
+        await printTicket(sale);
 
         setState(() {
           selectedEmployeeId = null;
@@ -236,7 +310,7 @@ class _CaissePageState extends State<CaissePage> {
           paymentMethod = 'cash';
         });
 
-        loadData();
+        await loadData();
       }
     } catch (e) {
       if (mounted) {
@@ -246,14 +320,10 @@ class _CaissePageState extends State<CaissePage> {
       }
     }
 
-    if (mounted) {
-      setState(() => saving = false);
-    }
+    if (mounted) setState(() => saving = false);
   }
 
-  String money(double value) {
-    return '${value.toStringAsFixed(0)} FCFA';
-  }
+  String money(double value) => '${value.toStringAsFixed(0)} FCFA';
 
   String paymentLabel(String value) {
     switch (value) {
@@ -261,8 +331,6 @@ class _CaissePageState extends State<CaissePage> {
         return 'Espèces';
       case 'mobile_money':
         return 'Mobile Money';
-      case 'card':
-        return 'Carte';
       default:
         return value;
     }
@@ -272,7 +340,7 @@ class _CaissePageState extends State<CaissePage> {
   Widget build(BuildContext context) {
     return Container(
       color: AppTheme.background,
-      padding: const EdgeInsets.all(30),
+      padding: const EdgeInsets.all(22),
       child: loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -282,23 +350,23 @@ class _CaissePageState extends State<CaissePage> {
                   const Text(
                     'Caisse',
                     style: TextStyle(
-                      fontSize: 32,
+                      fontSize: 28,
                       fontWeight: FontWeight.w900,
                       color: AppTheme.black,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   const Text(
                     'Enregistrez une vente service ou produit',
-                    style: TextStyle(fontSize: 16, color: AppTheme.textGrey),
+                    style: TextStyle(fontSize: 14, color: AppTheme.textGrey),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 18),
                   Container(
-                    width: 560,
-                    padding: const EdgeInsets.all(24),
+                    width: 480,
+                    padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: AppTheme.white,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(18),
                     ),
                     child: Column(
                       children: [
@@ -325,7 +393,7 @@ class _CaissePageState extends State<CaissePage> {
                             });
                           },
                         ),
-                        const SizedBox(height: 22),
+                        const SizedBox(height: 16),
                         if (saleType == 'service') ...[
                           DropdownButtonFormField<String>(
                             value: selectedEmployeeId,
@@ -341,7 +409,7 @@ class _CaissePageState extends State<CaissePage> {
                               setState(() => selectedEmployeeId = value);
                             },
                           ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 12),
                           DropdownButtonFormField<Map<String, dynamic>>(
                             value: selectedService,
                             decoration:
@@ -379,7 +447,7 @@ class _CaissePageState extends State<CaissePage> {
                               setState(() => selectedProduct = value);
                             },
                           ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 12),
                           TextField(
                             controller: quantityController,
                             keyboardType: TextInputType.number,
@@ -388,59 +456,41 @@ class _CaissePageState extends State<CaissePage> {
                             onChanged: (_) => setState(() {}),
                           ),
                         ],
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 14),
                         DropdownButtonFormField<String>(
                           value: paymentMethod,
                           decoration: const InputDecoration(
-                            labelText: 'Mode de paiement',
-                          ),
+                              labelText: 'Mode de paiement'),
                           items: const [
                             DropdownMenuItem(
-                              value: 'cash',
-                              child: Text('Espèces'),
-                            ),
+                                value: 'cash', child: Text('Espèces')),
                             DropdownMenuItem(
-                              value: 'mobile_money',
-                              child: Text('Mobile Money'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'card',
-                              child: Text('Carte'),
-                            ),
+                                value: 'mobile_money',
+                                child: Text('Mobile Money')),
                           ],
                           onChanged: (value) {
-                            setState(() {
-                              paymentMethod = value ?? 'cash';
-                            });
+                            setState(() => paymentMethod = value ?? 'cash');
                           },
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 18),
                         Text(
-                          'Montant à payer : ${money(getSelectedAmount())}',
+                          'Montant : ${money(getSelectedAmount())}',
                           style: const TextStyle(
-                            fontSize: 22,
+                            fontSize: 18,
                             fontWeight: FontWeight.w900,
                             color: AppTheme.black,
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Paiement : ${paymentLabel(paymentMethod)}',
-                          style: const TextStyle(
-                            color: AppTheme.textGrey,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 18),
                         SizedBox(
                           width: double.infinity,
-                          height: 52,
+                          height: 46,
                           child: ElevatedButton.icon(
                             onPressed: saving ? null : saveSale,
                             icon: const Icon(Icons.point_of_sale),
-                            label: Text(
-                              saving ? 'Enregistrement...' : 'Valider la vente',
-                            ),
+                            label: Text(saving
+                                ? 'Enregistrement...'
+                                : 'Valider et imprimer'),
                           ),
                         ),
                       ],
